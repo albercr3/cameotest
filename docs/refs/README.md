@@ -1,30 +1,32 @@
 # Reference downloads
 
-This directory centralizes external PDF references required by the project. The files themselves are downloaded into `_downloaded` so they do not bloat the repository.
+This directory centralizes external references for SysML v2 and the supporting web stack. Files are downloaded into `_downloaded` (gitignored) using the manifest-driven helper script.
 
 ## Manifest
 
-References are defined in [`manifest.json`](./manifest.json).
+References are defined in [`manifest.json`](./manifest.json) with fields:
 
-- `destination`: relative directory (from `docs/refs`) where downloads are stored.
-- `references`: list of objects with:
-  - `name`: human-readable title for logs.
-  - `url`: direct link to the PDF.
-  - `filename`: name to save under the destination directory.
-  - `notes`: optional context about why the file is included.
+- `name`: human-readable title.
+- `url`: source location to download or reference.
+- `filename`: saved name under the destination directory.
+- `type`: `pdf`, `html`, or `repo` (for link-only entries).
+- `purpose`: how the document informs design choices.
+- `priority`: `authoritative` or `practical`.
+
+The `destination` key controls where downloads are stored relative to `docs/refs/`.
 
 ## Usage
 
-Use the helper script to fetch or refresh the files locally:
+Download or refresh references locally:
 
 ```bash
 ./scripts/fetch-refs.sh
 ```
 
-By default, existing downloads are left in place. Set `FORCE=1` to redownload everything:
+Force a redownload by setting `FORCE=1`:
 
 ```bash
 FORCE=1 ./scripts/fetch-refs.sh
 ```
 
-Downloads are placed in [`_downloaded`](./_downloaded/), which is gitignored. You can safely delete the directory to reclaim space; rerun the script to restore the files.
+Downloads are placed in [`_downloaded`](./_downloaded/). This directory is gitignored and can be removed at any time; rerun the script to restore the files.

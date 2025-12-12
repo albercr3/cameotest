@@ -1,0 +1,64 @@
+{
+  "diagrams": [
+    {
+      "id": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0200",
+      "name": "System Overview",
+      "type": "BDD",
+      "ownerId": null,
+      "nodes": [
+        {
+          "id": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0300",
+          "elementId": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0002",
+          "x": 100,
+          "y": 80,
+          "w": 180,
+          "h": 100,
+          "compartments": {
+            "collapsed": false,
+            "showPorts": true,
+            "showParts": true
+          },
+          "style": {
+            "highlight": false
+          }
+        },
+        {
+          "id": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0301",
+          "elementId": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0003",
+          "x": 360,
+          "y": 140,
+          "w": 160,
+          "h": 90,
+          "compartments": {
+            "collapsed": false,
+            "showPorts": true,
+            "showParts": true
+          },
+          "style": {
+            "highlight": false
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0400",
+          "relationshipId": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0100",
+          "sourceNodeId": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0300",
+          "targetNodeId": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0301",
+          "routingPoints": [
+            { "x": 280, "y": 130 },
+            { "x": 330, "y": 130 }
+          ],
+          "label": "monitors"
+        }
+      ],
+      "viewSettings": {
+        "gridEnabled": true,
+        "snapEnabled": true,
+        "zoom": 1,
+        "panX": 0,
+        "panY": 0
+      }
+    }
+  ]
+}

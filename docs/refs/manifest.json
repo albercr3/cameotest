@@ -2,22 +2,84 @@
   "destination": "_downloaded",
   "references": [
     {
-      "name": "HTTP Semantics (RFC 9110)",
-      "url": "https://www.rfc-editor.org/rfc/rfc9110.pdf",
-      "filename": "rfc9110-http-semantics.pdf",
-      "notes": "Core HTTP semantics reference from the RFC Editor."
+      "name": "OMG SysML v2 Official Page",
+      "url": "https://www.omg.org/sysml/SysML-2.htm",
+      "filename": "omg-sysml-v2.html",
+      "type": "html",
+      "purpose": "Authoritative overview and release links for SysML v2.",
+      "priority": "authoritative"
     },
     {
-      "name": "JSON: The JavaScript Object Notation Data Interchange Format (RFC 8259)",
-      "url": "https://www.rfc-editor.org/rfc/rfc8259.pdf",
-      "filename": "rfc8259-json.pdf",
-      "notes": "Canonical description of JSON structure and encoding rules."
+      "name": "OMG SysML Overview Hub",
+      "url": "https://www.omg.org/sysml/",
+      "filename": "omg-sysml-overview.html",
+      "type": "html",
+      "purpose": "Landing page for SysML collateral and collateral links.",
+      "priority": "authoritative"
     },
     {
-      "name": "CommonMark 0.30 Specification",
-      "url": "https://spec.commonmark.org/0.30/commonmark-spec.pdf",
-      "filename": "commonmark-0.30.pdf",
-      "notes": "Markdown compatibility guidelines used for documentation."
+      "name": "SysML v2 Textual Notation Intro",
+      "url": "https://raw.githubusercontent.com/Systems-Modeling/SysML-v2-Release/master/doc/Intro%20to%20the%20SysML%20v2%20Language-Textual%20Notation.pdf",
+      "filename": "sysml-v2-textual-notation.pdf",
+      "type": "pdf",
+      "purpose": "Lightweight primer for textual notation used when shaping the IR.",
+      "priority": "authoritative"
+    },
+    {
+      "name": "KerML Specification",
+      "url": "https://raw.githubusercontent.com/Systems-Modeling/SysML-v2-Release/master/doc/1-Kernel_Modeling_Language.pdf",
+      "filename": "kerml-spec.pdf",
+      "type": "pdf",
+      "purpose": "Reference for kernel semantics underpinning SysML v2.",
+      "priority": "authoritative"
+    },
+    {
+      "name": "SysML v2 API & Services About",
+      "url": "https://www.omg.org/spec/SystemsModelingAPI/1.0/Beta1/About-SystemsModelingAPI",
+      "filename": "sysml-api-about.html",
+      "type": "html",
+      "purpose": "API and services overview for future interoperability.",
+      "priority": "practical"
+    },
+    {
+      "name": "SysML v2 API & Services Specification",
+      "url": "https://www.omg.org/spec/SystemsModelingAPI/1.0/Beta1/PDF",
+      "filename": "sysml-api-services.pdf",
+      "type": "pdf",
+      "purpose": "Detailed API semantics used to align backend endpoints.",
+      "priority": "practical"
+    },
+    {
+      "name": "SysML v2 Release Repository",
+      "url": "https://github.com/Systems-Modeling/SysML-v2-Release",
+      "filename": "sysml-v2-release-repo.html",
+      "type": "repo",
+      "purpose": "Canonical examples and libraries for SysML v2.",
+      "priority": "authoritative"
+    },
+    {
+      "name": "Sprotty Documentation",
+      "url": "https://sprotty.org/docs/introduction/",
+      "filename": "sprotty-docs.html",
+      "type": "html",
+      "purpose": "Diagram rendering inspiration for canvas architecture.",
+      "priority": "practical"
+    },
+    {
+      "name": "elkjs Package",
+      "url": "https://www.npmjs.com/package/elkjs",
+      "filename": "elkjs.html",
+      "type": "html",
+      "purpose": "Layout engine reference for future auto-layout.",
+      "priority": "practical"
+    },
+    {
+      "name": "Vite Guide",
+      "url": "https://vite.dev/guide/",
+      "filename": "vite-guide.html",
+      "type": "html",
+      "purpose": "Baseline Vite usage for the client shell.",
+      "priority": "practical"
     }
   ]
 }
