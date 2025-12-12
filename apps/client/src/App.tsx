@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { DiagramsFile, ModelFile, WorkspaceManifest } from '@cameotest/shared';
-import { IR_VERSION } from '@cameotest/shared';
+import type { Diagram, DiagramsFile, Element, ModelFile, WorkspaceManifest } from '@cameotest/shared';
+import { IR_VERSION, metaclassSchema } from '@cameotest/shared';
 import { Panel } from './components/Panel';
 import { Toolbar } from './components/Toolbar';
+import { ModelBrowser, ModelBrowserNode } from './components/ModelBrowser';
+import { PropertiesPanel } from './components/PropertiesPanel';
+import { DiagramCanvas } from './components/DiagramCanvas';
 
 interface WorkspacePayload {
   manifest: WorkspaceManifest;
@@ -30,11 +33,17 @@ async function postJson<T>(url: string, body?: unknown): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+const metaclasses = metaclassSchema.options;
+
 export default function App() {
   const [workspaces, setWorkspaces] = useState<WorkspaceManifest[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
   const [payload, setPayload] = useState<WorkspacePayload | null>(null);
   const [status, setStatus] = useState('Fetching workspace list...');
+  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [activeDiagramId, setActiveDiagramId] = useState<string | undefined>();
 
   useEffect(() => {
     getJson<WorkspaceManifest[]>('/api/workspaces')
@@ -58,6 +67,8 @@ export default function App() {
       .then(() => getJson<WorkspacePayload>('/api/workspaces/current/load'))
       .then((data) => {
         setPayload(data);
+        setSelectedId(data.model.elements[0]?.id);
+        setActiveDiagramId(data.diagrams.diagrams[0]?.id);
         setStatus('Ready');
       })
       .catch((error) => {
@@ -66,77 +77,184 @@ export default function App() {
       });
   }, [activeId]);
 
-  const elementSummaries = useMemo(() => {
-    if (!payload) return [] as Array<{ id: string; name: string; metaclass: string; ownerName: string | null }>;
-    const byId = new Map(payload.model.elements.map((el) => [el.id, el]));
-    return payload.model.elements.map((el) => ({
-      id: el.id,
-      name: el.name,
-      metaclass: el.metaclass,
-      ownerName: el.ownerId ? byId.get(el.ownerId)?.name ?? 'Unknown' : null,
-    }));
+  const tree = useMemo<ModelBrowserNode[]>(() => {
+    if (!payload) return [];
+    const nodes = new Map<string, ModelBrowserNode>();
+    payload.model.elements.forEach((element) => {
+      nodes.set(element.id, { element, children: [] });
+    });
+    const roots: ModelBrowserNode[] = [];
+    nodes.forEach((node) => {
+      if (node.element.ownerId) {
+        const parent = nodes.get(node.element.ownerId);
+        if (parent) {
+          parent.children.push(node);
+        } else {
+          roots.push(node);
+        }
+      } else {
+        roots.push(node);
+      }
+    });
+    return roots;
   }, [payload]);
 
-  const relationshipCount = payload?.model.relationships.length ?? 0;
-  const diagramCount = payload?.diagrams.diagrams.length ?? 0;
+  const selectedElement = useMemo(() => {
+    if (!payload || !selectedId) return undefined;
+    return payload.model.elements.find((el) => el.id === selectedId);
+  }, [payload, selectedId]);
+
+  const activeDiagram: Diagram | undefined = useMemo(() => {
+    if (!payload || !activeDiagramId) return undefined;
+    return payload.diagrams.diagrams.find((diagram) => diagram.id === activeDiagramId);
+  }, [activeDiagramId, payload]);
+
+  const elementsById = useMemo(() => {
+    if (!payload) return {} as Record<string, Element>;
+    return payload.model.elements.reduce<Record<string, Element>>((acc, element) => {
+      acc[element.id] = element;
+      return acc;
+    }, {});
+  }, [payload]);
+
+  const summary = useMemo(() => {
+    if (!payload) {
+      return {
+        elements: 0,
+        relationships: 0,
+        diagrams: 0,
+      };
+    }
+    return {
+      elements: payload.model.elements.length,
+      relationships: payload.model.relationships.length,
+      diagrams: payload.diagrams.diagrams.length,
+    };
+  }, [payload]);
+
+  const updateElement = (id: string, updates: Partial<Element>) => {
+    setPayload((current) => {
+      if (!current) return current;
+      const elements = current.model.elements.map((element) =>
+        element.id === id ? { ...element, ...updates, updatedAt: new Date().toISOString() } : element,
+      );
+      return {
+        ...current,
+        manifest: { ...current.manifest, updatedAt: new Date().toISOString() },
+        model: { ...current.model, elements },
+      };
+    });
+  };
+
+  const updateDiagram = (diagramId: string, next: Diagram) => {
+    setPayload((current) => {
+      if (!current) return current;
+      const diagrams = current.diagrams.diagrams.map((diagram) => (diagram.id === diagramId ? next : diagram));
+      return {
+        ...current,
+        manifest: { ...current.manifest, updatedAt: new Date().toISOString() },
+        diagrams: { diagrams },
+      };
+    });
+  };
+
+  const handleSave = async () => {
+    if (!payload) return;
+    setSaving(true);
+    const next: WorkspacePayload = {
+      ...payload,
+      manifest: { ...payload.manifest, updatedAt: new Date().toISOString() },
+    };
+    setPayload(next);
+    try {
+      await postJson('/api/workspaces/current/save', next);
+      setStatus('Saved workspace');
+    } catch (error) {
+      console.error(error);
+      setStatus('Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="app">
-      <Toolbar workspaces={workspaces} activeId={activeId} onChange={setActiveId} status={status} />
-      <main className="layout">
-        <Panel
-          title={payload?.manifest.name ?? 'Workspace overview'}
-          subtitle={payload?.manifest.description ?? 'Choose a workspace to begin'}
-        >
+      <Toolbar
+        workspaces={workspaces}
+        activeId={activeId}
+        onChange={setActiveId}
+        status={status}
+        onSave={payload ? handleSave : undefined}
+        saving={saving}
+      />
+      <main className="layout layout--three">
+        <Panel title="Model Browser" subtitle="Containment tree with search">
+          <ModelBrowser
+            tree={tree}
+            search={search}
+            onSearch={setSearch}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+        </Panel>
+        <Panel title={payload?.manifest.name ?? 'Workspace overview'} subtitle={payload?.manifest.description}>
           <p className="lede">
             {payload
-              ? `${payload.model.elements.length} elements, ${relationshipCount} relationships, ${diagramCount} diagrams.`
+              ? `${summary.elements} elements, ${summary.relationships} relationships, ${summary.diagrams} diagrams.`
               : 'Select a workspace to explore its contents.'}
           </p>
-          <div className="grid">
-            <div>
-              <h3>Elements</h3>
-              <ul className="list">
-                {elementSummaries.map((element) => (
-                  <li key={element.id}>
-                    <div className="list__title">{element.name}</div>
-                    <div className="list__meta">{element.metaclass}</div>
-                    {element.ownerName ? <p className="list__notes">Owned by {element.ownerName}</p> : null}
-                  </li>
-                ))}
-                {elementSummaries.length === 0 ? <li>No elements yet</li> : null}
-              </ul>
+          {activeDiagram ? (
+            <div className="diagram-wrapper">
+              <div className="diagram-header">
+                <label className="label" htmlFor="diagram-select">
+                  Diagram
+                </label>
+                <select
+                  id="diagram-select"
+                  value={activeDiagramId}
+                  onChange={(event) => setActiveDiagramId(event.target.value)}
+                >
+                  {payload?.diagrams.diagrams.map((diagram) => (
+                    <option key={diagram.id} value={diagram.id}>
+                      {diagram.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="diagram-meta">Type: {activeDiagram.type}</span>
+              </div>
+              <DiagramCanvas
+                diagram={activeDiagram}
+                elements={elementsById}
+                onChange={(diagram) => updateDiagram(activeDiagram.id, diagram)}
+              />
             </div>
-            <div>
-              <h3>Diagrams</h3>
-              <ul className="list">
-                {payload?.diagrams.diagrams.map((diagram) => (
-                  <li key={diagram.id}>
-                    <div className="list__title">{diagram.name}</div>
-                    <div className="list__meta">{diagram.type}</div>
-                  </li>
-                )) ?? <li>No diagrams yet</li>}
-              </ul>
-              <h3>Relationships</h3>
-              <p className="list__meta">{relationshipCount}</p>
+          ) : (
+            <div className="summary-cards">
+              <div className="card">
+                <div className="card__label">Workspace ID</div>
+                <div className="card__value">{payload?.manifest.id ?? '—'}</div>
+              </div>
+              <div className="card">
+                <div className="card__label">IR version</div>
+                <div className="card__value">{IR_VERSION}</div>
+              </div>
+              <div className="card">
+                <div className="card__label">Updated</div>
+                <div className="card__value">{payload?.manifest.updatedAt ?? '—'}</div>
+              </div>
+              <div className="card">
+                <div className="card__label">Created</div>
+                <div className="card__value">{payload?.manifest.createdAt ?? '—'}</div>
+              </div>
             </div>
-          </div>
+          )}
         </Panel>
-        <Panel title="Context" subtitle={`IR schema v${IR_VERSION}`}>
-          <dl className="description-list">
-            <div>
-              <dt>Workspace ID</dt>
-              <dd>{payload?.manifest.id ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Updated</dt>
-              <dd>{payload?.manifest.updatedAt ?? 'Unknown'}</dd>
-            </div>
-            <div>
-              <dt>Created</dt>
-              <dd>{payload?.manifest.createdAt ?? 'Unknown'}</dd>
-            </div>
-          </dl>
+        <Panel title="Properties" subtitle={selectedElement ? selectedElement.name : 'Select an element to edit'}>
+          <PropertiesPanel
+            element={selectedElement}
+            metaclasses={metaclasses}
+            onChange={(updates) => selectedId && updateElement(selectedId, updates)}
+          />
         </Panel>
       </main>
     </div>

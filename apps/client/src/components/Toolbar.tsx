@@ -5,9 +5,11 @@ interface ToolbarProps {
   activeId?: string;
   status: string;
   onChange: (id: string) => void;
+  onSave?: () => void;
+  saving?: boolean;
 }
 
-export function Toolbar({ workspaces, activeId, status, onChange }: ToolbarProps) {
+export function Toolbar({ workspaces, activeId, status, onChange, onSave, saving }: ToolbarProps) {
   return (
     <header className="toolbar">
       <div className="toolbar__title">
@@ -29,6 +31,9 @@ export function Toolbar({ workspaces, activeId, status, onChange }: ToolbarProps
             </option>
           ))}
         </select>
+        <button className="button" onClick={onSave} disabled={!onSave || saving} type="button">
+          {saving ? 'Saving…' : 'Save'}
+        </button>
       </div>
     </header>
   );

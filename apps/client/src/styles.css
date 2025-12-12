@@ -68,8 +68,12 @@ select {
 .layout {
   padding: 24px;
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 1.2fr 1.6fr 1.2fr;
   gap: 16px;
+}
+
+.layout--three {
+  grid-template-columns: 1.2fr 1.6fr 1.2fr;
 }
 
 .panel {
@@ -97,6 +101,10 @@ select {
 
 .panel__body {
   padding: 16px;
+}
+
+.panel__body :last-child {
+  margin-bottom: 0;
 }
 
 .lede {
@@ -168,6 +176,205 @@ select {
   color: white;
   border-radius: 999px;
   font-size: 12px;
+}
+
+.button {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #0f172a;
+  background: #0f172a;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.model-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tree-container {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  max-height: 440px;
+  overflow: auto;
+}
+
+.tree {
+  list-style: none;
+  padding-left: 12px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tree__item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.tree__item:hover {
+  border-color: #cbd5e1;
+}
+
+.tree__item--selected {
+  border-color: #0f172a;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.1);
+}
+
+.tree__title {
+  font-weight: 600;
+}
+
+.tree__meta {
+  font-size: 12px;
+  color: #475569;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: white;
+  font-size: 14px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+.properties {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.muted {
+  color: #64748b;
+}
+
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.card__label {
+  font-size: 12px;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.card__value {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.diagram-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.diagram-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diagram-meta {
+  color: #475569;
+  font-size: 12px;
+}
+
+.diagram-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diagram-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.diagram-canvas {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: white;
+  min-height: 520px;
+  position: relative;
+  overflow: hidden;
+}
+
+.diagram-canvas--grid {
+  background-image:
+    linear-gradient(#e2e8f0 1px, transparent 1px),
+    linear-gradient(90deg, #e2e8f0 1px, transparent 1px);
+}
+
+.diagram-node rect {
+  fill: #fff;
+  stroke: #0f172a;
+  stroke-width: 1.5;
+  filter: drop-shadow(0 4px 10px rgba(15, 23, 42, 0.08));
+}
+
+.diagram-node__title {
+  font-size: 14px;
+  font-weight: 700;
+  fill: #0f172a;
+}
+
+.diagram-node__meta {
+  font-size: 12px;
+  fill: #475569;
+}
+
+.zoom-group,
+.pan-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zoom-value {
+  font-weight: 700;
 }
 
 @media (max-width: 900px) {
