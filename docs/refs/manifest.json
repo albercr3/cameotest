@@ -1,0 +1,23 @@
+{
+  "destination": "_downloaded",
+  "references": [
+    {
+      "name": "HTTP Semantics (RFC 9110)",
+      "url": "https://www.rfc-editor.org/rfc/rfc9110.pdf",
+      "filename": "rfc9110-http-semantics.pdf",
+      "notes": "Core HTTP semantics reference from the RFC Editor."
+    },
+    {
+      "name": "JSON: The JavaScript Object Notation Data Interchange Format (RFC 8259)",
+      "url": "https://www.rfc-editor.org/rfc/rfc8259.pdf",
+      "filename": "rfc8259-json.pdf",
+      "notes": "Canonical description of JSON structure and encoding rules."
+    },
+    {
+      "name": "CommonMark 0.30 Specification",
+      "url": "https://spec.commonmark.org/0.30/commonmark-spec.pdf",
+      "filename": "commonmark-0.30.pdf",
+      "notes": "Markdown compatibility guidelines used for documentation."
+    }
+  ]
+}
