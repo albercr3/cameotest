@@ -4,3 +4,5 @@ pnpm-lock.yaml
 *.log
 dist
 .vscode
+# Reference downloads
+/docs/refs/_downloaded/
