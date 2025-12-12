@@ -1,0 +1,59 @@
+{
+  "elements": [
+    {
+      "id": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0001",
+      "metaclass": "Package",
+      "name": "DemoPackage",
+      "ownerId": null,
+      "documentation": "Root package for the sample workspace",
+      "stereotypes": [],
+      "tags": {},
+      "createdAt": "2024-06-01T12:00:00.000Z",
+      "updatedAt": "2024-06-01T12:00:00.000Z"
+    },
+    {
+      "id": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0002",
+      "metaclass": "Block",
+      "name": "System",
+      "ownerId": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0001",
+      "documentation": "Top-level system block",
+      "stereotypes": [],
+      "tags": {},
+      "createdAt": "2024-06-01T12:00:00.000Z",
+      "updatedAt": "2024-06-01T12:00:00.000Z"
+    },
+    {
+      "id": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0003",
+      "metaclass": "Block",
+      "name": "Sensor",
+      "ownerId": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0001",
+      "documentation": "Sensor component",
+      "stereotypes": [],
+      "tags": {},
+      "createdAt": "2024-06-01T12:00:00.000Z",
+      "updatedAt": "2024-06-01T12:00:00.000Z"
+    },
+    {
+      "id": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0004",
+      "metaclass": "Part",
+      "name": "sensorInstance",
+      "ownerId": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0002",
+      "documentation": "Part usage of the sensor within the system",
+      "stereotypes": [],
+      "tags": {},
+      "createdAt": "2024-06-01T12:00:00.000Z",
+      "updatedAt": "2024-06-01T12:00:00.000Z"
+    }
+  ],
+  "relationships": [
+    {
+      "id": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0100",
+      "type": "Association",
+      "sourceId": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0002",
+      "targetId": "8b1c3d3d-0d1a-4e7f-9a8a-6a1a7f1a0003",
+      "properties": {
+        "name": "monitors"
+      }
+    }
+  ]
+}
