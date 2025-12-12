@@ -4,3 +4,5 @@
 - SysML API & Services references guide the REST endpoints and workspace payload shapes so they can evolve toward interoperability.
 - Diagram rendering guidance comes from Sprotty and ELK for eventual interactive canvas behaviors.
 - For the initial MVP, a **Block Definition Diagram (BDD)** is chosen as the first supported diagram type because it requires fewer interaction primitives than an IBD (ports/connectors) while still exercising containment, relationships, and labeling.
+- Model browser containment and ownership follow the SysML package/block hierarchy guidance from the SysML v2 textual notation intro, keeping a clear tree structure before adding diagram editing.
+- Initial BDD canvas interactions (grid/snap, pan/zoom, draggable nodes) mirror Sprotty/ELK workspace affordances to keep future alignment straightforward.
