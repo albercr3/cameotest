@@ -8,5 +8,8 @@
     "dev": "pnpm --filter @cameotest/client dev",
     "start": "pnpm --filter @cameotest/server start",
     "lint": "pnpm -r run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }
