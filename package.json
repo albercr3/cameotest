@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@9.15.4",
   "scripts": {
+<<<<<<< HEAD
     "build": "pnpm -r run build",
     "dev": "pnpm --filter @cameotest/client dev",
     "start": "pnpm --filter @cameotest/server start",
@@ -11,5 +12,11 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
+=======
+  "build": "pnpm -r run build",
+  "dev": "concurrently -k -n shared,server,client \"pnpm --filter @cameotest/shared dev\" \"pnpm --filter @cameotest/server dev\" \"pnpm --filter @cameotest/client dev\"",
+  "start": "pnpm --filter @cameotest/server start",
+  "lint": "pnpm -r run lint"
+>>>>>>> 334febab002da870dbbf474ff3b7ebfba97b5c18
   }
 }
