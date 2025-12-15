@@ -128,6 +128,7 @@ export default function App() {
   const [pendingConnectorPortId, setPendingConnectorPortId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const pendingHistory = useRef(new Map<string, HistoryEntry>());
   const addOffset = useRef(0);
   const ibdPartOffset = useRef(0);
   const pasteOffset = useRef(0);
@@ -158,30 +159,65 @@ export default function App() {
   const selectElement = (id?: string) => setSelection(id ? { kind: 'element', id } : undefined);
   const selectRelationship = (id?: string) => setSelection(id ? { kind: 'relationship', id } : undefined);
 
+  const pushHistoryEntry = useCallback((entry: HistoryEntry) => {
+    setHistory((prev) => {
+      const next = [...prev, entry];
+      return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
+    });
+  }, []);
+
   const recordHistory = useCallback(
     (current: WorkspacePayload) => {
-      setHistory((prev) => {
-        const next = [...prev, { payload: current, selection, selectedNodeIds, activeDiagramId }];
-        return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next;
-      });
+      pushHistoryEntry({ payload: current, selection, selectedNodeIds, activeDiagramId });
     },
-    [activeDiagramId, selectedNodeIds, selection],
+    [activeDiagramId, pushHistoryEntry, selectedNodeIds, selection],
   );
 
   const applyChange = useCallback(
-    (mutator: (current: WorkspacePayload) => WorkspacePayload) => {
+    (
+      mutator: (current: WorkspacePayload) => WorkspacePayload,
+      options?: { transient?: boolean; historyKey?: string },
+    ) => {
       setPayload((current) => {
         if (!current) return current;
+        const historyKey = options?.historyKey;
+        const isTransient = options?.transient;
+
+        if (isTransient && historyKey && !pendingHistory.current.has(historyKey)) {
+          pendingHistory.current.set(historyKey, {
+            payload: current,
+            selection,
+            selectedNodeIds,
+            activeDiagramId,
+          });
+        }
+
         const next = mutator(current);
-        if (next === current) return current;
-        recordHistory(current);
+        if (next === current) {
+          if (!isTransient && historyKey) {
+            pendingHistory.current.delete(historyKey);
+          }
+          return current;
+        }
+
+        if (isTransient) {
+          return next;
+        }
+
+        const historyEntry = historyKey ? pendingHistory.current.get(historyKey) : undefined;
+        if (historyEntry && historyKey) {
+          pushHistoryEntry(historyEntry);
+          pendingHistory.current.delete(historyKey);
+        } else {
+          recordHistory(current);
+        }
         setRedoStack([]);
         setDirty(true);
         setAutosaveError(null);
         return next;
       });
     },
-    [recordHistory],
+    [activeDiagramId, pushHistoryEntry, recordHistory, selectedNodeIds, selection],
   );
 
   const refreshWorkspaces = useCallback(() => {
@@ -426,7 +462,11 @@ export default function App() {
     });
   };
 
-  const updateDiagram = (diagramId: string, next: Diagram) => {
+  const updateDiagram = (
+    diagramId: string,
+    next: Diagram,
+    options?: { transient?: boolean; historyKey?: string },
+  ) => {
     applyChange((current) => {
       const normalized = normalizeDiagram(next);
       const diagrams = current.diagrams.diagrams.map((diagram) =>
@@ -437,7 +477,7 @@ export default function App() {
         manifest: { ...current.manifest, updatedAt: new Date().toISOString() },
         diagrams: { diagrams },
       };
-    });
+    }, options);
   };
 
   const selectContainerId = (candidateId?: string) => {
@@ -1790,7 +1830,7 @@ export default function App() {
                   onDropElement={handleDropElement}
                   onCanvasContextMenu={handleCanvasContextMenu}
                   onPartContextMenu={handlePartContextMenu}
-                  onChange={(diagram) => updateDiagram(activeDiagram.id, diagram)}
+                  onChange={(diagram, options) => updateDiagram(activeDiagram.id, diagram, options)}
                 />
               </div>
             ) : (
