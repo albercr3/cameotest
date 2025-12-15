@@ -38,7 +38,14 @@ type HistoryEntry = {
 
 type ContextMenuState =
   | { kind: 'tree'; x: number; y: number; elementId: string }
-  | { kind: 'canvas'; x: number; y: number; position: { x: number; y: number } };
+  | { kind: 'canvas'; x: number; y: number; position: { x: number; y: number } }
+  | {
+      kind: 'part';
+      x: number;
+      y: number;
+      elementId: string;
+      position: { x: number; y: number };
+    };
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -365,21 +372,30 @@ export default function App() {
   const selectedIsBlock = selectedElement?.metaclass === 'Block';
   const selectedIsPort = selectedElement?.metaclass === 'Port';
   const selectedIsPart = selectedElement?.metaclass === 'Part';
+  const belongsToContextBlock = (element?: Element, contextBlockId?: string | null) => {
+    if (!element || !contextBlockId) return false;
+    let current: Element | undefined = element;
+    while (current?.ownerId) {
+      const owner: Element | undefined = elementsById[current.ownerId];
+      if (!owner) return false;
+      if (owner.metaclass === 'Block') return owner.id === contextBlockId;
+      current = owner;
+    }
+    return current?.metaclass === 'Block' && current.id === contextBlockId;
+  };
   const activeDiagramKind = diagramKindOf(activeDiagram);
   const canUseConnectMode = !!(activeDiagram && isIbdDiagram(activeDiagram));
   const canAddPortToIbd = !!(
     selectedIsPort &&
     activeDiagram &&
     isIbdDiagram(activeDiagram) &&
-    selectedElement?.ownerId &&
-    activeDiagram.contextBlockId === selectedElement.ownerId
+    belongsToContextBlock(selectedElement, activeDiagram.contextBlockId)
   );
   const canAddPartToIbd = !!(
     selectedIsPart &&
     activeDiagram &&
     isIbdDiagram(activeDiagram) &&
-    selectedElement?.ownerId &&
-    activeDiagram.contextBlockId === selectedElement.ownerId
+    belongsToContextBlock(selectedElement, activeDiagram.contextBlockId)
   );
   const canAddElementToDiagram = !!(
     activeDiagram &&
@@ -769,6 +785,31 @@ export default function App() {
     options?: { select?: boolean; position?: { x: number; y: number } },
   ) => {
     if (!payload || !isIbdDiagram(diagram)) return;
+    const port = elementsById[portId];
+    if (!port || port.metaclass !== 'Port') return;
+
+    const anchor = (() => {
+      const owner = port.ownerId ? elementsById[port.ownerId] : undefined;
+      if (!owner) return null;
+      if (owner.metaclass === 'Block' && owner.id === diagram.contextBlockId) {
+        return { owner, rect: IBD_FRAME } as const;
+      }
+      if (owner.metaclass === 'Part') {
+        const owningNode = diagram.nodes.find((node) => {
+          const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
+          return nodeKind === 'Part' && node.elementId === owner.id;
+        });
+        if (!owningNode) return null;
+        return { owner, rect: { x: owningNode.x, y: owningNode.y, w: owningNode.w, h: owningNode.h } } as const;
+      }
+      return null;
+    })();
+
+    if (!anchor) {
+      showToast('Add the owning part to this diagram before placing its port', 'error');
+      return;
+    }
+
     const existing = diagram.nodes.find((node) => node.elementId === portId);
     if (existing) {
       if (options?.select !== false) {
@@ -778,9 +819,14 @@ export default function App() {
       return existing.id;
     }
 
-    const frame = IBD_FRAME;
     const sides: Array<'N' | 'E' | 'S' | 'W'> = ['N', 'E', 'S', 'W'];
-    const counts = sides.map((side) => diagram.nodes.filter((node) => node.placement?.side === side).length);
+    const nodesForOwner = diagram.nodes.filter((node) => {
+      const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
+      if (nodeKind !== 'Port') return false;
+      const nodeElement = elementsById[node.elementId];
+      return nodeElement?.ownerId === anchor.owner.id;
+    });
+    const counts = sides.map((side) => nodesForOwner.filter((node) => node.placement?.side === side).length);
 
     const defaultSide = () => {
       const minCount = Math.min(...counts);
@@ -791,21 +837,22 @@ export default function App() {
     const derivePlacementFromPosition = () => {
       if (!options?.position) return null;
       const { x, y } = options.position;
-      const clampedX = Math.min(Math.max(x, frame.x), frame.x + frame.w);
-      const clampedY = Math.min(Math.max(y, frame.y), frame.y + frame.h);
+      const rect = anchor.rect;
+      const clampedX = Math.min(Math.max(x, rect.x), rect.x + rect.w);
+      const clampedY = Math.min(Math.max(y, rect.y), rect.y + rect.h);
       const distances = [
-        { side: 'N' as const, distance: Math.abs(clampedY - frame.y) },
-        { side: 'S' as const, distance: Math.abs(clampedY - (frame.y + frame.h)) },
-        { side: 'W' as const, distance: Math.abs(clampedX - frame.x) },
-        { side: 'E' as const, distance: Math.abs(clampedX - (frame.x + frame.w)) },
+        { side: 'N' as const, distance: Math.abs(clampedY - rect.y) },
+        { side: 'S' as const, distance: Math.abs(clampedY - (rect.y + rect.h)) },
+        { side: 'W' as const, distance: Math.abs(clampedX - rect.x) },
+        { side: 'E' as const, distance: Math.abs(clampedX - (rect.x + rect.w)) },
       ];
       const closest = distances.reduce((best, candidate) =>
         candidate.distance < best.distance ? candidate : best,
       );
       const offset =
         closest.side === 'N' || closest.side === 'S'
-          ? (clampedX - frame.x) / frame.w
-          : (clampedY - frame.y) / frame.h;
+          ? (clampedX - rect.x) / rect.w
+          : (clampedY - rect.y) / rect.h;
       return { side: closest.side, offset };
     };
 
@@ -889,7 +936,7 @@ export default function App() {
     if (!payload || !activeDiagram) return;
     if (isIbdDiagram(activeDiagram)) {
       const element = elementsById[elementId];
-      if (!element || element.ownerId !== activeDiagram.contextBlockId) return;
+      if (!element || !belongsToContextBlock(element, activeDiagram.contextBlockId)) return;
       if (element.metaclass === 'Port') {
         return addPortToIbdDiagram(activeDiagram, elementId, options);
       }
@@ -959,7 +1006,7 @@ export default function App() {
     }
 
     if (isIbdDiagram(activeDiagram)) {
-      if (element.ownerId !== activeDiagram.contextBlockId) {
+      if (!belongsToContextBlock(element, activeDiagram.contextBlockId)) {
         showToast('Only parts or ports owned by the context block can be dropped here', 'error');
         return;
       }
@@ -987,6 +1034,21 @@ export default function App() {
     position: { x: number; y: number };
   }) => {
     setContextMenu({ kind: 'canvas', x: payload.clientX, y: payload.clientY, position: payload.position });
+  };
+
+  const handlePartContextMenu = (payload: {
+    elementId: string;
+    clientX: number;
+    clientY: number;
+    position: { x: number; y: number };
+  }) => {
+    setContextMenu({
+      kind: 'part',
+      x: payload.clientX,
+      y: payload.clientY,
+      elementId: payload.elementId,
+      position: payload.position,
+    });
   };
 
   const findIbdForBlock = (blockId: string) =>
@@ -1155,6 +1217,26 @@ export default function App() {
         model: { ...current.model, relationships } as ModelFile,
       };
     });
+  };
+
+  const updateConnectorItemFlow = (connectorId: string, itemFlowLabel?: string) => {
+    const normalized = itemFlowLabel?.trim() === '' ? undefined : itemFlowLabel?.trim();
+    applyChange((current: WorkspacePayload): WorkspacePayload => {
+      let changed = false;
+      const relationships = current.model.relationships.map((rel) => {
+        if (rel.id !== connectorId || rel.type !== 'Connector') return rel;
+        if (rel.itemFlowLabel === normalized) return rel;
+        changed = true;
+        return { ...rel, itemFlowLabel: normalized } as Relationship;
+      }) as Relationship[];
+      if (!changed) return current;
+      return {
+        ...current,
+        manifest: { ...current.manifest, updatedAt: new Date().toISOString() },
+        model: { ...current.model, relationships } as ModelFile,
+      };
+    });
+    selectRelationship(connectorId);
   };
 
   const deleteRelationship = (id: string) => {
@@ -1457,9 +1539,14 @@ export default function App() {
         setContextMenu(null);
       };
       const createPortHere = () => {
-        if (target.metaclass !== 'Block') return;
+        if (target.metaclass !== 'Block' && target.metaclass !== 'Part') return;
         const portId = createPort(target.id);
-        if (portId && activeDiagram && isIbdDiagram(activeDiagram) && activeDiagram.contextBlockId === target.id) {
+        if (
+          portId &&
+          activeDiagram &&
+          isIbdDiagram(activeDiagram) &&
+          belongsToContextBlock(target, activeDiagram.contextBlockId)
+        ) {
           addPortToIbdDiagram(activeDiagram, portId, { select: true });
         }
         setContextMenu(null);
@@ -1499,7 +1586,7 @@ export default function App() {
               type="button"
               onClick={createPortHere}
               className="context-menu__item"
-              disabled={target.metaclass !== 'Block'}
+              disabled={target.metaclass !== 'Block' && target.metaclass !== 'Part'}
             >
               Create port
             </button>
@@ -1515,6 +1602,36 @@ export default function App() {
               disabled={target.metaclass !== 'Block'}
             >
               Create IBD diagram
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (contextMenu.kind === 'part' && activeDiagram) {
+      const target = elementsById[contextMenu.elementId];
+      if (!target || target.metaclass !== 'Part') return null;
+      const addPortHere = () => {
+        if (!isIbdDiagram(activeDiagram) || activeDiagram.contextBlockId !== target.ownerId) {
+          setContextMenu(null);
+          return;
+        }
+        const portId = createPort(target.id);
+        if (portId) {
+          addPortToIbdDiagram(activeDiagram, portId, { select: true, position: contextMenu.position });
+        }
+        setContextMenu(null);
+      };
+      return (
+        <div
+          className="context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="context-menu__title">{target.name}</div>
+          <div className="context-menu__group">
+            <button type="button" onClick={addPortHere} className="context-menu__item">
+              Add Port here
             </button>
           </div>
         </div>
@@ -1672,6 +1789,7 @@ export default function App() {
                   onPortSelect={handlePortSelect}
                   onDropElement={handleDropElement}
                   onCanvasContextMenu={handleCanvasContextMenu}
+                  onPartContextMenu={handlePartContextMenu}
                   onChange={(diagram) => updateDiagram(activeDiagram.id, diagram)}
                 />
               </div>
@@ -1711,6 +1829,11 @@ export default function App() {
               onRelationshipChange={(updates) =>
                 selectedRelationshipId && updateRelationship(selectedRelationshipId, updates)
               }
+              onConnectorItemFlowChange={
+                selectedRelationship?.type === 'Connector'
+                  ? (value) => updateConnectorItemFlow(selectedRelationship.id, value)
+                  : undefined
+              }
               onCreateRelationship={
                 selectedElement
                   ? (type, targetId) => createRelationship(type, selectedElement.id, targetId)
@@ -1722,7 +1845,11 @@ export default function App() {
                   ? () => addToDiagram(selectedElementId)
                   : undefined
               }
-              onAddPort={selectedIsBlock && selectedElement ? () => createPort(selectedElement.id) : undefined}
+              onAddPort={
+                (selectedIsBlock || selectedIsPart) && selectedElement
+                  ? () => createPort(selectedElement.id)
+                  : undefined
+              }
               onCreatePart={
                 selectedIsBlock &&
                 selectedElement &&
