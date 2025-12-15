@@ -9,7 +9,9 @@ interface ToolbarProps {
   saving?: boolean;
   onCreateWorkspace?: () => void;
   onImportWorkspace?: () => void;
+  onImportSysml?: () => void;
   onExportWorkspace?: () => void;
+  onExportSysml?: () => void;
   autosaveEnabled: boolean;
   autosaveStatus: string;
   onToggleAutosave?: () => void;
@@ -28,7 +30,9 @@ export function Toolbar({
   saving,
   onCreateWorkspace,
   onImportWorkspace,
+  onImportSysml,
   onExportWorkspace,
+  onExportSysml,
   autosaveEnabled,
   autosaveStatus,
   onToggleAutosave,
@@ -70,8 +74,14 @@ export function Toolbar({
         <button className="button button--ghost" onClick={onImportWorkspace} type="button">
           Open / Import
         </button>
+        <button className="button button--ghost" onClick={onImportSysml} type="button">
+          Import SysML v2
+        </button>
         <button className="button button--ghost" onClick={onExportWorkspace} disabled={!onExportWorkspace} type="button">
           Export
+        </button>
+        <button className="button button--ghost" onClick={onExportSysml} disabled={!onExportSysml} type="button">
+          Export SysML v2
         </button>
         <button className="button" onClick={onSave} disabled={!onSave || saving} type="button">
           {saving ? 'Saving…' : 'Save'}

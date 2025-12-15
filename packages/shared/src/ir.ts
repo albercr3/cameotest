@@ -121,6 +121,16 @@ export interface WorkspaceFiles {
   diagrams: DiagramsFile;
 }
 
+export const sysmlV2JsonSchema = z
+  .object({
+    type: z.literal('sysmlv2-json'),
+    manifest: workspaceManifestSchema.partial().optional(),
+    model: modelFileSchema,
+    diagrams: diagramsFileSchema.optional(),
+  })
+  .passthrough();
+export type SysmlV2Json = z.infer<typeof sysmlV2JsonSchema>;
+
 export function validateWorkspaceFiles(files: WorkspaceFiles) {
   const manifestResult = workspaceManifestSchema.safeParse(files.manifest);
   if (!manifestResult.success) {

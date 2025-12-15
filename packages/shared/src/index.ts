@@ -12,6 +12,7 @@ export {
   workspaceManifestSchema,
   validateWorkspaceFiles,
   IR_VERSION,
+  sysmlV2JsonSchema,
 } from './ir.js';
 
 export type {
@@ -24,4 +25,5 @@ export type {
   Relationship,
   WorkspaceFiles,
   WorkspaceManifest,
+  SysmlV2Json,
 } from './ir.js';

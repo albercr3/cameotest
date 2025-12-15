@@ -12,6 +12,7 @@ import {
   WorkspaceManifest,
   diagramsFileSchema,
   modelFileSchema,
+  sysmlV2JsonSchema,
   validateWorkspaceFiles,
   workspaceManifestSchema,
 } from '@cameotest/shared';
@@ -96,6 +97,18 @@ function listWorkspaces(): WorkspaceManifest[] {
     });
 }
 
+function manifestFromSysml(sysmlManifest?: Partial<WorkspaceManifest>): WorkspaceManifest {
+  const now = new Date().toISOString();
+  const baseId = sysmlManifest?.id ?? 'sysmlv2-import';
+  return {
+    id: nextAvailableWorkspaceId(baseId),
+    name: sysmlManifest?.name ?? sysmlManifest?.id ?? 'Imported SysML v2 workspace',
+    description: sysmlManifest?.description ?? 'Imported from SysML v2 JSON',
+    createdAt: sysmlManifest?.createdAt ?? now,
+    updatedAt: now,
+  } satisfies WorkspaceManifest;
+}
+
 function writeWorkspace(files: WorkspaceFiles) {
   const id = sanitizeWorkspaceId(files.manifest.id);
   const manifest = { ...files.manifest, id };
@@ -173,12 +186,19 @@ app.get('/api/workspaces/current/load', (_req, res) => {
   }
 });
 
-app.get('/api/workspaces/current/export', (_req, res) => {
+app.get('/api/workspaces/current/export', (req, res) => {
   if (!currentWorkspaceId) {
     return res.status(400).json({ message: 'No workspace open' });
   }
   try {
     const workspace = loadWorkspace(currentWorkspaceId);
+    const format = typeof req.query.type === 'string' ? req.query.type : undefined;
+    if (format === 'sysmlv2-json') {
+      return res.json({ type: 'sysmlv2-json', ...workspace });
+    }
+    if (format === 'workspace-json') {
+      return res.json({ type: 'workspace-json', workspace });
+    }
     res.json(workspace);
   } catch (error) {
     res.status(500).json({ message: 'Failed to export workspace', details: String(error) });
@@ -224,8 +244,22 @@ app.post('/api/workspaces/current/import', (req, res) => {
 });
 
 app.post('/api/workspaces/import', (req, res) => {
-  const candidate = (req.body as { workspace?: WorkspaceFiles } & Partial<WorkspaceFiles>).workspace ?? req.body;
   try {
+    if (req.body?.type === 'sysmlv2-json') {
+      const sysml = sysmlV2JsonSchema.parse(req.body.sysml ?? req.body);
+      const manifest = manifestFromSysml(sysml.manifest);
+      const workspace: WorkspaceFiles = {
+        manifest,
+        model: sysml.model,
+        diagrams: sysml.diagrams ?? { diagrams: [] },
+      };
+      const validated = validateWorkspaceFiles(workspace);
+      writeWorkspace(validated);
+      currentWorkspaceId = validated.manifest.id;
+      return res.status(201).json({ status: 'imported', manifest: validated.manifest });
+    }
+
+    const candidate = (req.body as { workspace?: WorkspaceFiles } & Partial<WorkspaceFiles>).workspace ?? req.body;
     const validated = validateWorkspaceFiles(candidate as WorkspaceFiles);
     const manifest = { ...validated.manifest, id: nextAvailableWorkspaceId(validated.manifest.id) };
     const workspace: WorkspaceFiles = { ...validated, manifest };
