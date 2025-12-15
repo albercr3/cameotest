@@ -541,6 +541,27 @@ textarea {
   filter: drop-shadow(0 4px 10px rgba(15, 23, 42, 0.08));
 }
 
+.diagram-node--port circle {
+  fill: #fff;
+  stroke: #0f172a;
+  stroke-width: 1.5;
+}
+
+.diagram-node--port.diagram-node--selected circle {
+  stroke: #4f46e5;
+  stroke-width: 2;
+}
+
+.ibd-frame {
+  fill: #f8fafc;
+  stroke: #0f172a;
+  stroke-width: 2;
+}
+
+.ibd-frame.diagram-node--selected {
+  stroke: #4f46e5;
+}
+
 .diagram-node__title {
   font-size: 14px;
   font-weight: 700;

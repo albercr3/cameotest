@@ -11,12 +11,15 @@ interface PropertiesPanelProps {
   relatedRelationships: Relationship[];
   metaclasses: Metaclass[];
   relationshipTypes: RelationshipType[];
+  relationshipCreationTypes?: RelationshipType[];
   onSelect: (selection: Selection) => void;
   onElementChange: (updates: Partial<Element>) => void;
   onRelationshipChange: (updates: Partial<Relationship>) => void;
   onCreateRelationship?: (type: RelationshipType, targetId: string) => void;
   onDeleteRelationship?: () => void;
   onAddToDiagram?: () => void;
+  onAddPort?: () => void;
+  onCreateIbd?: () => void;
 }
 
 export function PropertiesPanel({
@@ -27,20 +30,23 @@ export function PropertiesPanel({
   relatedRelationships,
   metaclasses,
   relationshipTypes,
+  relationshipCreationTypes,
   onSelect,
   onElementChange,
   onRelationshipChange,
   onCreateRelationship,
   onDeleteRelationship,
   onAddToDiagram,
+  onAddPort,
+  onCreateIbd,
 }: PropertiesPanelProps) {
   const [newTarget, setNewTarget] = useState('');
   const [newType, setNewType] = useState<RelationshipType>(relationshipTypes[0]);
 
   useEffect(() => {
     setNewTarget('');
-    setNewType(relationshipTypes[0]);
-  }, [element?.id, relationshipTypes]);
+    setNewType((relationshipCreationTypes ?? relationshipTypes)[0]);
+  }, [element?.id, relationshipCreationTypes, relationshipTypes]);
 
   const targetOptions = useMemo(() => {
     return Object.values(elements)
@@ -48,13 +54,17 @@ export function PropertiesPanel({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [element, elements]);
 
+  const creationTypeOptions = relationshipCreationTypes ?? relationshipTypes;
+
   if (!element && !relationship) {
     return <p className="muted">Select an element or relationship to inspect its properties.</p>;
   }
 
   if (relationship && selection?.kind === 'relationship') {
-    const source = elements[relationship.sourceId];
-    const target = elements[relationship.targetId];
+    const isConnector = relationship.type === 'Connector';
+    const source = isConnector ? elements[relationship.sourcePortId] : elements[relationship.sourceId];
+    const target = isConnector ? elements[relationship.targetPortId] : elements[relationship.targetId];
+    const typeOptions = isConnector ? ['Connector'] : relationshipTypes;
     return (
       <form className="properties" onSubmit={(event) => event.preventDefault()}>
         <div className="properties__actions">
@@ -74,8 +84,9 @@ export function PropertiesPanel({
           id="rel-type"
           value={relationship.type}
           onChange={(event) => onRelationshipChange({ type: event.target.value as RelationshipType })}
+          disabled={isConnector}
         >
-          {relationshipTypes.map((type) => (
+          {typeOptions.map((type) => (
             <option key={type} value={type}>
               {type}
             </option>
@@ -101,6 +112,16 @@ export function PropertiesPanel({
         <button type="button" className="button" onClick={onAddToDiagram} disabled={!onAddToDiagram}>
           Add to current diagram
         </button>
+        {onAddPort ? (
+          <button type="button" className="button button--ghost" onClick={onAddPort} disabled={!onAddPort}>
+            Add Port
+          </button>
+        ) : null}
+        {onCreateIbd ? (
+          <button type="button" className="button button--ghost" onClick={onCreateIbd} disabled={!onCreateIbd}>
+            Create / Open IBD
+          </button>
+        ) : null}
       </div>
       <label className="label" htmlFor="prop-name">
         Name
@@ -178,8 +199,8 @@ export function PropertiesPanel({
               <li className="muted">No relationships yet.</li>
             ) : (
               relatedRelationships.map((rel) => {
-                const source = elements[rel.sourceId];
-                const target = elements[rel.targetId];
+                const source = rel.type === 'Connector' ? elements[rel.sourcePortId] : elements[rel.sourceId];
+                const target = rel.type === 'Connector' ? elements[rel.targetPortId] : elements[rel.targetId];
                 return (
                   <li key={rel.id} className="list__relationship">
                     <div>
@@ -215,7 +236,7 @@ export function PropertiesPanel({
               value={newType}
               onChange={(event) => setNewType(event.target.value as RelationshipType)}
             >
-              {relationshipTypes.map((type) => (
+              {creationTypeOptions.map((type) => (
                 <option key={type} value={type}>
                   {type}
                 </option>
