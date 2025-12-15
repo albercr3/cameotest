@@ -5,6 +5,7 @@ import type {
   Element,
   ModelFile,
   Relationship,
+  SysmlV2Json,
   WorkspaceFiles,
   WorkspaceManifest,
 } from '@cameotest/shared';
@@ -81,7 +82,8 @@ export default function App() {
   const [dirty, setDirty] = useState(false);
   const [activeDiagramId, setActiveDiagramId] = useState<string | undefined>();
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [importingWorkspace, setImportingWorkspace] = useState(false);
+  const [importingSysml, setImportingSysml] = useState(false);
   const [banner, setBanner] = useState<{ kind: 'error' | 'info'; messages: string[] } | null>(null);
   const [autosaveEnabled, setAutosaveEnabled] = useState(true);
   const [autosaveError, setAutosaveError] = useState<string | null>(null);
@@ -92,6 +94,7 @@ export default function App() {
   const pasteOffset = useRef(0);
   const clipboardNodesRef = useRef<Diagram['nodes']>([]);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const sysmlImportInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectElement = (id?: string) => setSelection(id ? { kind: 'element', id } : undefined);
   const selectRelationship = (id?: string) => setSelection(id ? { kind: 'relationship', id } : undefined);
@@ -387,11 +390,14 @@ export default function App() {
   };
 
   const handleImportWorkspace = async (file: File) => {
-    setImporting(true);
+    setImportingWorkspace(true);
     try {
       setStatus('Importing workspace...');
       const text = await file.text();
       const parsed = JSON.parse(text);
+      if (parsed?.type === 'sysmlv2-json') {
+        throw new Error('This file is a SysML v2 bundle. Use the SysML import option instead.');
+      }
       const response = await postJson<{ manifest: WorkspaceManifest }>(
         '/api/workspaces/import',
         { workspace: parsed },
@@ -406,7 +412,29 @@ export default function App() {
       setBanner({ kind: 'error', messages: ['Import failed', message] });
       setStatus('Import failed');
     } finally {
-      setImporting(false);
+      setImportingWorkspace(false);
+    }
+  };
+
+  const handleImportSysml = async (file: File) => {
+    setImportingSysml(true);
+    try {
+      setStatus('Importing SysML v2 JSON...');
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const payload = parsed?.type === 'sysmlv2-json' ? parsed : { ...parsed, type: 'sysmlv2-json' };
+      const response = await postJson<{ manifest: WorkspaceManifest }>('/api/workspaces/import', payload);
+      await refreshWorkspaces();
+      setActiveId(response.manifest.id);
+      setBanner(null);
+      setStatus('Ready');
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      setBanner({ kind: 'error', messages: ['SysML import failed', message] });
+      setStatus('SysML import failed');
+    } finally {
+      setImportingSysml(false);
     }
   };
 
@@ -428,6 +456,29 @@ export default function App() {
       const message = error instanceof Error ? error.message : String(error);
       setBanner({ kind: 'error', messages: ['Export failed', message] });
       setStatus('Export failed');
+    }
+  };
+
+  const handleExportSysml = async () => {
+    if (!payload) return;
+    try {
+      setStatus('Exporting SysML v2 JSON...');
+      const sysmlBundle = await getJson<SysmlV2Json & WorkspaceFiles>(
+        '/api/workspaces/current/export?type=sysmlv2-json',
+      );
+      const blob = new Blob([JSON.stringify(sysmlBundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${sysmlBundle.manifest.id}-sysmlv2.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setStatus('Ready');
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      setBanner({ kind: 'error', messages: ['SysML export failed', message] });
+      setStatus('SysML export failed');
     }
   };
 
@@ -805,6 +856,17 @@ export default function App() {
     importInputRef.current?.click();
   };
 
+  const handleSysmlImportChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    event.target.value = '';
+    handleImportSysml(file);
+  };
+
+  const triggerSysmlImport = () => {
+    sysmlImportInputRef.current?.click();
+  };
+
   const handleSave = useCallback(
     async (options?: { auto?: boolean }) => {
       if (!payload) return;
@@ -873,7 +935,9 @@ export default function App() {
         saving={saving}
         onCreateWorkspace={createWorkspace}
         onImportWorkspace={triggerImport}
+        onImportSysml={triggerSysmlImport}
         onExportWorkspace={payload ? handleExportWorkspace : undefined}
+        onExportSysml={payload ? handleExportSysml : undefined}
         autosaveEnabled={autosaveEnabled}
         autosaveStatus={autosaveStatus}
         onToggleAutosave={
@@ -895,6 +959,13 @@ export default function App() {
         accept="application/json,.json"
         style={{ display: 'none' }}
         onChange={handleImportInputChange}
+      />
+      <input
+        ref={sysmlImportInputRef}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: 'none' }}
+        onChange={handleSysmlImportChange}
       />
       {banner ? (
         <div className={`banner banner--${banner.kind}`}>
@@ -1010,12 +1081,20 @@ export default function App() {
                 className="button button--ghost"
                 type="button"
                 onClick={triggerImport}
-                disabled={importing}
+                disabled={importingWorkspace}
               >
-                {importing ? 'Importing…' : 'Open / Import'}
+                {importingWorkspace ? 'Importing…' : 'Open / Import'}
+              </button>
+              <button
+                className="button button--ghost"
+                type="button"
+                onClick={triggerSysmlImport}
+                disabled={importingSysml}
+              >
+                {importingSysml ? 'Importing…' : 'Import SysML v2'}
               </button>
             </div>
-            <p className="hint">Accepts a JSON bundle with manifest, model, and diagrams.</p>
+            <p className="hint">Accepts workspace bundles or SysML v2 JSON with model and diagram data.</p>
           </Panel>
           <Panel title="Available workspaces" subtitle={landingSubtitle}>
             {workspaces.length === 0 ? (
