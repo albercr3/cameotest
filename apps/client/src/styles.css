@@ -278,10 +278,14 @@ select {
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease, background 150ms ease;
 }
 
 .tree__item:hover {
-  border-color: #cbd5e1;
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  transform: translateX(2px);
+  box-shadow: 0 10px 30px rgba(59, 130, 246, 0.08);
 }
 
 .tree__item--selected {
@@ -539,6 +543,13 @@ textarea {
   stroke: #0f172a;
   stroke-width: 1.5;
   filter: drop-shadow(0 4px 10px rgba(15, 23, 42, 0.08));
+  transition: transform 150ms ease, stroke 150ms ease, filter 150ms ease;
+}
+
+.diagram-node:hover rect {
+  transform: translateY(-2px);
+  stroke: #4f46e5;
+  filter: drop-shadow(0 8px 18px rgba(79, 70, 229, 0.18));
 }
 
 .diagram-node--port circle {
@@ -586,6 +597,107 @@ textarea {
 .diagram-edge--selected {
   stroke: #0ea5e9;
   stroke-width: 3;
+}
+
+.toast-stack {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10;
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.1);
+  font-weight: 600;
+  color: #0f172a;
+  min-width: 220px;
+}
+
+.toast--error {
+  border-color: #fecdd3;
+  background: #fff1f2;
+  color: #9f1239;
+}
+
+.toast__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #22c55e;
+  display: inline-block;
+}
+
+.toast--error .toast__dot {
+  background: #ef4444;
+}
+
+.toast__close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+}
+
+.context-menu {
+  position: fixed;
+  min-width: 200px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+  padding: 10px;
+  z-index: 12;
+}
+
+.context-menu__title {
+  font-weight: 700;
+  color: #0f172a;
+  margin: 4px 6px 8px;
+}
+
+.context-menu__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.context-menu__group:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.context-menu__item {
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.context-menu__item:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.context-menu__item:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
 }
 
 .diagram-node--related rect {

@@ -1,0 +1,219 @@
+{
+  "manifest": {
+    "id": "example-workspace",
+    "name": "Example Workspace",
+    "description": "Starter BDD + IBD sample",
+    "createdAt": "2024-01-01T00:00:00.000Z",
+    "updatedAt": "2024-01-01T00:00:00.000Z"
+  },
+  "model": {
+    "elements": [
+      {
+        "id": "pkg-1",
+        "metaclass": "Package",
+        "name": "Example Package",
+        "ownerId": null,
+        "documentation": "",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "block-vehicle",
+        "metaclass": "Block",
+        "name": "Vehicle",
+        "ownerId": "pkg-1",
+        "documentation": "A simple vehicle with an engine and wheel",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "block-engine",
+        "metaclass": "Block",
+        "name": "Engine",
+        "ownerId": "pkg-1",
+        "documentation": "Power source",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "block-wheel",
+        "metaclass": "Block",
+        "name": "Wheel",
+        "ownerId": "pkg-1",
+        "documentation": "Rolling element",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "part-engine",
+        "metaclass": "Part",
+        "name": "EnginePart",
+        "ownerId": "block-vehicle",
+        "typeId": "block-engine",
+        "documentation": "Engine assembly",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "part-wheel",
+        "metaclass": "Part",
+        "name": "WheelPart",
+        "ownerId": "block-vehicle",
+        "typeId": "block-wheel",
+        "documentation": "Front wheel",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "port-frame",
+        "metaclass": "Port",
+        "name": "VehiclePort",
+        "ownerId": "block-vehicle",
+        "documentation": "Vehicle interface",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-01-01T00:00:00.000Z",
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      }
+    ],
+    "relationships": [
+      {
+        "id": "rel-vehicle-engine",
+        "type": "Association",
+        "sourceId": "block-vehicle",
+        "targetId": "block-engine",
+        "properties": {}
+      },
+      {
+        "id": "rel-vehicle-wheel",
+        "type": "Association",
+        "sourceId": "block-vehicle",
+        "targetId": "block-wheel",
+        "properties": {}
+      }
+    ]
+  },
+  "diagrams": {
+    "diagrams": [
+      {
+        "id": "diag-bdd",
+        "name": "System Overview",
+        "kind": "BDD",
+        "type": "BDD",
+        "ownerId": "pkg-1",
+        "nodes": [
+          {
+            "id": "node-vehicle",
+            "elementId": "block-vehicle",
+            "kind": "Element",
+            "x": 320,
+            "y": 200,
+            "w": 190,
+            "h": 110,
+            "compartments": { "collapsed": false, "showParts": true, "showPorts": true },
+            "style": { "highlight": false }
+          },
+          {
+            "id": "node-engine",
+            "elementId": "block-engine",
+            "kind": "Element",
+            "x": 620,
+            "y": 180,
+            "w": 190,
+            "h": 110,
+            "compartments": { "collapsed": false, "showParts": true, "showPorts": true },
+            "style": { "highlight": false }
+          },
+          {
+            "id": "node-wheel",
+            "elementId": "block-wheel",
+            "kind": "Element",
+            "x": 620,
+            "y": 320,
+            "w": 190,
+            "h": 110,
+            "compartments": { "collapsed": false, "showParts": true, "showPorts": true },
+            "style": { "highlight": false }
+          }
+        ],
+        "edges": [
+          {
+            "id": "edge-vehicle-engine",
+            "relationshipId": "rel-vehicle-engine",
+            "sourceNodeId": "node-vehicle",
+            "targetNodeId": "node-engine",
+            "routingPoints": [],
+            "label": "Association"
+          },
+          {
+            "id": "edge-vehicle-wheel",
+            "relationshipId": "rel-vehicle-wheel",
+            "sourceNodeId": "node-vehicle",
+            "targetNodeId": "node-wheel",
+            "routingPoints": [],
+            "label": "Association"
+          }
+        ],
+        "viewSettings": { "gridEnabled": true, "snapEnabled": true, "zoom": 1, "panX": 0, "panY": 0 }
+      },
+      {
+        "id": "diag-ibd",
+        "name": "Vehicle IBD",
+        "kind": "IBD",
+        "type": "IBD",
+        "contextBlockId": "block-vehicle",
+        "ownerId": "pkg-1",
+        "nodes": [
+          {
+            "id": "node-part-engine",
+            "elementId": "part-engine",
+            "kind": "Part",
+            "x": 320,
+            "y": 220,
+            "w": 190,
+            "h": 110,
+            "compartments": { "collapsed": false, "showParts": true, "showPorts": true },
+            "style": { "highlight": false }
+          },
+          {
+            "id": "node-part-wheel",
+            "elementId": "part-wheel",
+            "kind": "Part",
+            "x": 520,
+            "y": 360,
+            "w": 190,
+            "h": 110,
+            "compartments": { "collapsed": false, "showParts": true, "showPorts": true },
+            "style": { "highlight": false }
+          },
+          {
+            "id": "node-port-frame",
+            "elementId": "port-frame",
+            "kind": "Port",
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 24,
+            "placement": { "side": "E", "offset": 0.35 },
+            "compartments": { "collapsed": true, "showParts": false, "showPorts": false },
+            "style": { "highlight": false }
+          }
+        ],
+        "edges": [],
+        "viewSettings": { "gridEnabled": true, "snapEnabled": true, "zoom": 1, "panX": 0, "panY": 0 }
+      }
+    ]
+  }
+}

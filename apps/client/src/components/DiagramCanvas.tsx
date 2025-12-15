@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Diagram, Element, Relationship } from '@cameotest/shared';
+import { DraggedElementPayload, ELEMENT_DRAG_MIME } from '../dragTypes';
 
 type Selection = { kind: 'element' | 'relationship'; id: string };
 
@@ -14,6 +15,10 @@ interface DiagramCanvasProps {
   onSelectNodes?: (nodeIds: string[]) => void;
   connectMode?: boolean;
   onPortSelect?: (portId: string, nodeId: string) => void;
+  onDropElement?: (payload: DraggedElementPayload, position: { x: number; y: number }) => void;
+  onCanvasContextMenu?: (
+    payload: { clientX: number; clientY: number; position: { x: number; y: number } },
+  ) => void;
   onChange: (diagram: Diagram) => void;
 }
 
@@ -31,6 +36,8 @@ export function DiagramCanvas({
   onSelectNodes,
   connectMode,
   onPortSelect,
+  onDropElement,
+  onCanvasContextMenu,
   onChange,
 }: DiagramCanvasProps) {
   const dragStart = useRef<
@@ -55,7 +62,9 @@ export function DiagramCanvas({
 
   const view = diagram.viewSettings;
 
-  const toDiagramPoint = (event: React.PointerEvent | PointerEvent) => {
+  const toDiagramPoint = (
+    event: React.PointerEvent | PointerEvent | React.DragEvent | React.MouseEvent,
+  ) => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
     const x = (event.clientX - rect.left) / view.zoom - view.panX;
@@ -88,9 +97,24 @@ export function DiagramCanvas({
     onChange({ ...diagram, nodes: nextNodes });
   };
 
+  const startPan = (event: React.PointerEvent | PointerEvent) => {
+    panStart.current = { x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY };
+    const target = svgRef.current;
+    target?.setPointerCapture(event.pointerId);
+    window.addEventListener('pointermove', handleCanvasPointerMove);
+    window.addEventListener('pointerup', handleCanvasPointerUp);
+  };
+
   const handlePointerDown = (event: React.PointerEvent, nodeId: string) => {
     event.preventDefault();
     event.stopPropagation();
+    if (event.button !== 0) return;
+
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      startPan(event);
+      return;
+    }
+
     const node = nodesById.get(nodeId);
     if (!node) return;
     const alreadySelected = selectedNodeIds.includes(nodeId);
@@ -103,6 +127,8 @@ export function DiagramCanvas({
     if (onSelectElement) {
       onSelectElement(node.elementId);
     }
+    const target = event.currentTarget as SVGGElement | null;
+    target?.setPointerCapture(event.pointerId);
     dragStart.current = {
       x: event.clientX,
       y: event.clientY,
@@ -136,12 +162,12 @@ export function DiagramCanvas({
     onSelectRelationship?.(undefined);
     const isPan = event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey;
     if (isPan) {
-      panStart.current = { x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY };
-      window.addEventListener('pointermove', handleCanvasPointerMove);
-      window.addEventListener('pointerup', handleCanvasPointerUp);
+      startPan(event);
       return;
     }
     const startPoint = toDiagramPoint(event);
+    const target = event.currentTarget;
+    target?.setPointerCapture(event.pointerId);
     marqueeStart.current = startPoint;
     setMarquee({ x: startPoint.x, y: startPoint.y, w: 0, h: 0 });
     window.addEventListener('pointermove', handleMarqueePointerMove);
@@ -213,6 +239,32 @@ export function DiagramCanvas({
     event.preventDefault();
     const factor = event.deltaY > 0 ? 0.9 : 1.1;
     zoomBy(factor);
+  };
+
+  const handleDragOver = (event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes(ELEMENT_DRAG_MIME)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  };
+
+  const handleDrop = (event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes(ELEMENT_DRAG_MIME)) return;
+    event.preventDefault();
+    const payloadText = event.dataTransfer.getData(ELEMENT_DRAG_MIME);
+    if (!payloadText) return;
+    try {
+      const payload = JSON.parse(payloadText) as DraggedElementPayload;
+      onDropElement?.(payload, toDiagramPoint(event));
+    } catch {
+      /* ignore malformed payloads */
+    }
+  };
+
+  const handleContextMenu = (event: React.MouseEvent<SVGSVGElement>) => {
+    if ((event.target as globalThis.Element | null)?.closest('.diagram-node')) return;
+    event.preventDefault();
+    const position = toDiagramPoint(event);
+    onCanvasContextMenu?.({ clientX: event.clientX, clientY: event.clientY, position });
   };
 
   useEffect(() => {
@@ -292,9 +344,7 @@ export function DiagramCanvas({
       onSelectRelationship?.(undefined);
       const isPan = event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey;
       if (isPan) {
-        panStart.current = { x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY };
-        window.addEventListener('pointermove', handleCanvasPointerMove);
-        window.addEventListener('pointerup', handleCanvasPointerUp);
+        startPan(event);
       }
     };
 
@@ -338,12 +388,15 @@ export function DiagramCanvas({
           className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}`}
           style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
           onWheel={handleWheel}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
         >
           <svg
             ref={svgRef}
             width="100%"
             height="100%"
             viewBox="0 0 1200 800"
+            onContextMenu={handleContextMenu}
             onPointerDown={handleIbdCanvasPointerDown}
           >
             <g transform={`translate(${view.panX} ${view.panY}) scale(${view.zoom})`}>
@@ -487,12 +540,15 @@ export function DiagramCanvas({
         className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}`}
         style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
         onWheel={handleWheel}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
       >
         <svg
           ref={svgRef}
           width="100%"
           height="100%"
           viewBox="0 0 1200 800"
+          onContextMenu={handleContextMenu}
           onPointerDown={handleCanvasPointerDown}
         >
           <g transform={`translate(${view.panX} ${view.panY}) scale(${view.zoom})`}>
