@@ -18,10 +18,13 @@ export const elementSchema = z
   .passthrough();
 export type Element = z.infer<typeof elementSchema>;
 
+export const relationshipTypeSchema = z.enum(['Generalization', 'Association']);
+export type RelationshipType = z.infer<typeof relationshipTypeSchema>;
+
 export const relationshipSchema = z
   .object({
     id: z.string().uuid(),
-    type: z.string().min(1),
+    type: relationshipTypeSchema,
     sourceId: z.string().uuid(),
     targetId: z.string().uuid(),
     properties: z.record(z.any()).default({}),

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Element } from '@cameotest/shared';
+import type { Diagram, Element } from '@cameotest/shared';
 
 export interface ModelBrowserNode {
   element: Element;
@@ -12,9 +12,27 @@ interface ModelBrowserProps {
   onSearch: (value: string) => void;
   selectedId?: string;
   onSelect: (id: string) => void;
+  onCreatePackage: () => void;
+  onCreateBlock: () => void;
+  onDelete?: () => void;
+  onAddToDiagram?: () => void;
+  activeDiagram?: Diagram;
+  disableActions?: boolean;
 }
 
-export function ModelBrowser({ tree, search, onSearch, selectedId, onSelect }: ModelBrowserProps) {
+export function ModelBrowser({
+  tree,
+  search,
+  onSearch,
+  selectedId,
+  onSelect,
+  onCreatePackage,
+  onCreateBlock,
+  onDelete,
+  onAddToDiagram,
+  activeDiagram,
+  disableActions,
+}: ModelBrowserProps) {
   const normalizedSearch = search.trim().toLowerCase();
 
   const filtered = useMemo(() => {
@@ -53,6 +71,25 @@ export function ModelBrowser({ tree, search, onSearch, selectedId, onSelect }: M
 
   return (
     <div className="model-browser">
+      <div className="model-browser__actions">
+        <button type="button" className="button" onClick={onCreatePackage} disabled={disableActions}>
+          New Package
+        </button>
+        <button type="button" className="button" onClick={onCreateBlock} disabled={disableActions}>
+          New Block
+        </button>
+        <button type="button" className="button button--ghost" onClick={onDelete} disabled={!onDelete || disableActions}>
+          Delete
+        </button>
+        <button
+          type="button"
+          className="button button--ghost"
+          onClick={onAddToDiagram}
+          disabled={!onAddToDiagram || !activeDiagram || disableActions}
+        >
+          Add to diagram
+        </button>
+      </div>
       <label className="label" htmlFor="model-search">
         Search
       </label>

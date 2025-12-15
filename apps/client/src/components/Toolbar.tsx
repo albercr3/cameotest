@@ -7,9 +7,36 @@ interface ToolbarProps {
   onChange: (id: string) => void;
   onSave?: () => void;
   saving?: boolean;
+  onCreateWorkspace?: () => void;
+  onImportWorkspace?: () => void;
+  onExportWorkspace?: () => void;
+  autosaveEnabled: boolean;
+  autosaveStatus: string;
+  onToggleAutosave?: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
-export function Toolbar({ workspaces, activeId, status, onChange, onSave, saving }: ToolbarProps) {
+export function Toolbar({
+  workspaces,
+  activeId,
+  status,
+  onChange,
+  onSave,
+  saving,
+  onCreateWorkspace,
+  onImportWorkspace,
+  onExportWorkspace,
+  autosaveEnabled,
+  autosaveStatus,
+  onToggleAutosave,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
+}: ToolbarProps) {
   return (
     <header className="toolbar">
       <div className="toolbar__title">
@@ -20,20 +47,45 @@ export function Toolbar({ workspaces, activeId, status, onChange, onSave, saving
         </div>
       </div>
       <div className="toolbar__actions">
+        <button className="button button--ghost" onClick={onUndo} disabled={!onUndo || !canUndo} type="button">
+          Undo
+        </button>
+        <button className="button button--ghost" onClick={onRedo} disabled={!onRedo || !canRedo} type="button">
+          Redo
+        </button>
         <label className="toolbar__label" htmlFor="workspace-select">
           Workspace
         </label>
         <select id="workspace-select" value={activeId ?? ''} onChange={(event) => onChange(event.target.value)}>
-          {workspaces.length === 0 ? <option value="">Loading...</option> : null}
+          <option value="">Choose…</option>
           {workspaces.map((workspace) => (
             <option key={workspace.id} value={workspace.id}>
               {workspace.name}
             </option>
           ))}
         </select>
+        <button className="button button--ghost" onClick={onCreateWorkspace} type="button">
+          New workspace
+        </button>
+        <button className="button button--ghost" onClick={onImportWorkspace} type="button">
+          Open / Import
+        </button>
+        <button className="button button--ghost" onClick={onExportWorkspace} disabled={!onExportWorkspace} type="button">
+          Export
+        </button>
         <button className="button" onClick={onSave} disabled={!onSave || saving} type="button">
           {saving ? 'Saving…' : 'Save'}
         </button>
+        <label className="toolbar__toggle">
+          <input
+            type="checkbox"
+            checked={autosaveEnabled}
+            onChange={onToggleAutosave}
+            disabled={!onToggleAutosave}
+          />
+          <span>Autosave</span>
+        </label>
+        <span className="toolbar__status toolbar__status--inline">{autosaveStatus}</span>
       </div>
     </header>
   );

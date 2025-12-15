@@ -1,25 +1,114 @@
-import type { Element, Metaclass } from '@cameotest/shared';
+import { useEffect, useMemo, useState } from 'react';
+import type { Element, Metaclass, Relationship, RelationshipType } from '@cameotest/shared';
+
+type Selection = { kind: 'element' | 'relationship'; id: string };
 
 interface PropertiesPanelProps {
+  selection?: Selection;
   element?: Element;
+  relationship?: Relationship;
+  elements: Record<string, Element>;
+  relatedRelationships: Relationship[];
   metaclasses: Metaclass[];
-  onChange: (updates: Partial<Element>) => void;
+  relationshipTypes: RelationshipType[];
+  onSelect: (selection: Selection) => void;
+  onElementChange: (updates: Partial<Element>) => void;
+  onRelationshipChange: (updates: Partial<Relationship>) => void;
+  onCreateRelationship?: (type: RelationshipType, targetId: string) => void;
+  onDeleteRelationship?: () => void;
+  onAddToDiagram?: () => void;
 }
 
-export function PropertiesPanel({ element, metaclasses, onChange }: PropertiesPanelProps) {
+export function PropertiesPanel({
+  selection,
+  element,
+  relationship,
+  elements,
+  relatedRelationships,
+  metaclasses,
+  relationshipTypes,
+  onSelect,
+  onElementChange,
+  onRelationshipChange,
+  onCreateRelationship,
+  onDeleteRelationship,
+  onAddToDiagram,
+}: PropertiesPanelProps) {
+  const [newTarget, setNewTarget] = useState('');
+  const [newType, setNewType] = useState<RelationshipType>(relationshipTypes[0]);
+
+  useEffect(() => {
+    setNewTarget('');
+    setNewType(relationshipTypes[0]);
+  }, [element?.id, relationshipTypes]);
+
+  const targetOptions = useMemo(() => {
+    return Object.values(elements)
+      .filter((el) => (element ? el.id !== element.id : true))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [element, elements]);
+
+  if (!element && !relationship) {
+    return <p className="muted">Select an element or relationship to inspect its properties.</p>;
+  }
+
+  if (relationship && selection?.kind === 'relationship') {
+    const source = elements[relationship.sourceId];
+    const target = elements[relationship.targetId];
+    return (
+      <form className="properties" onSubmit={(event) => event.preventDefault()}>
+        <div className="properties__actions">
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={onDeleteRelationship}
+            disabled={!onDeleteRelationship}
+          >
+            Delete relationship
+          </button>
+        </div>
+        <label className="label" htmlFor="rel-type">
+          Type
+        </label>
+        <select
+          id="rel-type"
+          value={relationship.type}
+          onChange={(event) => onRelationshipChange({ type: event.target.value as RelationshipType })}
+        >
+          {relationshipTypes.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+
+        <label className="label">Source</label>
+        <div className="pill">{source?.name ?? 'Missing source'}</div>
+
+        <label className="label">Target</label>
+        <div className="pill">{target?.name ?? 'Missing target'}</div>
+      </form>
+    );
+  }
+
   if (!element) {
     return <p className="muted">Select an element to inspect its properties.</p>;
   }
 
   return (
     <form className="properties" onSubmit={(event) => event.preventDefault()}>
+      <div className="properties__actions">
+        <button type="button" className="button" onClick={onAddToDiagram} disabled={!onAddToDiagram}>
+          Add to current diagram
+        </button>
+      </div>
       <label className="label" htmlFor="prop-name">
         Name
       </label>
       <input
         id="prop-name"
         value={element.name}
-        onChange={(event) => onChange({ name: event.target.value })}
+        onChange={(event) => onElementChange({ name: event.target.value })}
       />
 
       <label className="label" htmlFor="prop-metaclass">
@@ -28,7 +117,7 @@ export function PropertiesPanel({ element, metaclasses, onChange }: PropertiesPa
       <select
         id="prop-metaclass"
         value={element.metaclass}
-        onChange={(event) => onChange({ metaclass: event.target.value as Metaclass })}
+        onChange={(event) => onElementChange({ metaclass: event.target.value as Metaclass })}
       >
         {metaclasses.map((mc) => (
           <option key={mc} value={mc}>
@@ -43,7 +132,7 @@ export function PropertiesPanel({ element, metaclasses, onChange }: PropertiesPa
       <textarea
         id="prop-doc"
         value={element.documentation}
-        onChange={(event) => onChange({ documentation: event.target.value })}
+        onChange={(event) => onElementChange({ documentation: event.target.value })}
         rows={4}
       />
 
@@ -54,7 +143,7 @@ export function PropertiesPanel({ element, metaclasses, onChange }: PropertiesPa
         id="prop-stereotypes"
         value={element.stereotypes.join(', ')}
         onChange={(event) =>
-          onChange({ stereotypes: event.target.value.split(',').map((s) => s.trim()).filter(Boolean) })
+          onElementChange({ stereotypes: event.target.value.split(',').map((s) => s.trim()).filter(Boolean) })
         }
       />
 
@@ -76,9 +165,90 @@ export function PropertiesPanel({ element, metaclasses, onChange }: PropertiesPa
               if (key && value) acc[key.trim()] = value.trim();
               return acc;
             }, {});
-          onChange({ tags: next });
+          onElementChange({ tags: next });
         }}
       />
+
+      <hr />
+      <div className="properties__row">
+        <div>
+          <div className="label">Relationships</div>
+          <ul className="list">
+            {relatedRelationships.length === 0 ? (
+              <li className="muted">No relationships yet.</li>
+            ) : (
+              relatedRelationships.map((rel) => {
+                const source = elements[rel.sourceId];
+                const target = elements[rel.targetId];
+                return (
+                  <li key={rel.id} className="list__relationship">
+                    <div>
+                      <div className="list__title">{rel.type}</div>
+                      <div className="list__meta">
+                        {(source?.name ?? 'Unknown')} → {(target?.name ?? 'Unknown')}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="button button--ghost"
+                      onClick={() => onSelect({ kind: 'relationship', id: rel.id })}
+                    >
+                      Select
+                    </button>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        </div>
+      </div>
+
+      <div className="properties__row">
+        <div>
+          <div className="label">Create relationship</div>
+          <div className="properties__grid">
+            <label className="label" htmlFor="rel-type-new">
+              Type
+            </label>
+            <select
+              id="rel-type-new"
+              value={newType}
+              onChange={(event) => setNewType(event.target.value as RelationshipType)}
+            >
+              {relationshipTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+            <label className="label" htmlFor="rel-target">
+              Target
+            </label>
+            <select
+              id="rel-target"
+              value={newTarget}
+              onChange={(event) => setNewTarget(event.target.value)}
+            >
+              <option value="">Select element</option>
+              {targetOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="properties__actions properties__actions--inline">
+            <button
+              type="button"
+              className="button"
+              onClick={() => newTarget && onCreateRelationship?.(newType, newTarget)}
+              disabled={!onCreateRelationship || !newTarget}
+            >
+              Create relationship
+            </button>
+          </div>
+        </div>
+      </div>
     </form>
   );
 }

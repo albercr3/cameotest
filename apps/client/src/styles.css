@@ -52,6 +52,26 @@ body {
   gap: 8px;
 }
 
+.toolbar__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.toolbar__toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.toolbar__status--inline {
+  min-width: 140px;
+  text-align: left;
+  color: #0f172a;
+}
+
 .toolbar__label {
   font-weight: 600;
   color: #334155;
@@ -74,6 +94,10 @@ select {
 
 .layout--three {
   grid-template-columns: 1.2fr 1.6fr 1.2fr;
+}
+
+.layout--landing {
+  grid-template-columns: 1.2fr 1fr;
 }
 
 .panel {
@@ -188,14 +212,41 @@ select {
   cursor: pointer;
 }
 
+.button--ghost {
+  background: #fff;
+  color: #0f172a;
+}
+
 .button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
+.banner {
+  margin: 12px 24px 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+  font-weight: 600;
+}
+
+.banner--info {
+  border-color: #0ea5e9;
+  background: #ecfeff;
+  color: #075985;
+}
+
 .model-browser {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+}
+
+.model-browser__actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -275,6 +326,33 @@ textarea {
   gap: 8px;
 }
 
+.properties__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.properties__actions--inline {
+  justify-content: flex-start;
+}
+
+.properties__row {
+  margin-top: 8px;
+}
+
+.properties__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  align-items: end;
+}
+
+.list__relationship {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .muted {
   color: #64748b;
 }
@@ -320,6 +398,107 @@ textarea {
   font-size: 12px;
 }
 
+.diagram-meta--count {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #312e81;
+  font-weight: 700;
+}
+
+.landing__actions {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.hint {
+  color: #475569;
+  margin: 0;
+}
+
+.empty-state {
+  padding: 16px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  color: #475569;
+}
+
+.workspace-cards {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.workspace-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workspace-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.workspace-card__name {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.workspace-card__id {
+  font-size: 12px;
+  color: #475569;
+}
+
+.workspace-card__meta {
+  font-size: 12px;
+  color: #0f172a;
+}
+
+.diagram-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.diagram-tab {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  min-width: 120px;
+  text-align: left;
+}
+
+.diagram-tab--active {
+  border-color: #4f46e5;
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.18);
+}
+
+.diagram-tab__name {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.diagram-tab__type {
+  color: #475569;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .diagram-shell {
   display: flex;
   flex-direction: column;
@@ -340,6 +519,13 @@ textarea {
   min-height: 520px;
   position: relative;
   overflow: hidden;
+}
+
+.diagram-marquee {
+  fill: rgba(79, 70, 229, 0.08);
+  stroke: #4f46e5;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
 }
 
 .diagram-canvas--grid {
@@ -364,6 +550,42 @@ textarea {
 .diagram-node__meta {
   font-size: 12px;
   fill: #475569;
+}
+
+.diagram-edge {
+  stroke: #4f46e5;
+  opacity: 0.9;
+}
+
+.diagram-edge--dangling {
+  stroke: #f97316;
+  stroke-dasharray: 6 4;
+}
+
+.diagram-edge--selected {
+  stroke: #0ea5e9;
+  stroke-width: 3;
+}
+
+.diagram-node--related rect {
+  stroke: #0ea5e9;
+  stroke-dasharray: 4 4;
+}
+
+.diagram-node--selected rect {
+  stroke: #4f46e5;
+  stroke-width: 2;
+}
+
+.diagram-node--missing rect {
+  stroke: #f97316;
+  stroke-dasharray: 6 4;
+  fill: #fff7ed;
+}
+
+.diagram-node--missing .diagram-node__title,
+.diagram-node--missing .diagram-node__meta {
+  fill: #c2410c;
 }
 
 .zoom-group,

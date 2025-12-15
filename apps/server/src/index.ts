@@ -20,7 +20,7 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,12 +28,28 @@ const workspacesDir = path.resolve(__dirname, '../../../examples/workspaces');
 
 let currentWorkspaceId: string | null = null;
 
+function sanitizeWorkspaceId(rawId: string) {
+  const safe = rawId.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 80) || uuid();
+  return safe;
+}
+
 function ensureWorkspaceDir(id: string) {
   const target = path.join(workspacesDir, id);
   if (!fs.existsSync(target)) {
     fs.mkdirSync(target, { recursive: true });
   }
   return target;
+}
+
+function nextAvailableWorkspaceId(id: string) {
+  const base = sanitizeWorkspaceId(id);
+  let candidate = base;
+  let suffix = 2;
+  while (fs.existsSync(path.join(workspacesDir, candidate))) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
 }
 
 function loadManifest(id: string): WorkspaceManifest {
@@ -81,8 +97,10 @@ function listWorkspaces(): WorkspaceManifest[] {
 }
 
 function writeWorkspace(files: WorkspaceFiles) {
-  const dir = ensureWorkspaceDir(files.manifest.id);
-  fs.writeFileSync(path.join(dir, 'workspace.json'), JSON.stringify(files.manifest, null, 2));
+  const id = sanitizeWorkspaceId(files.manifest.id);
+  const manifest = { ...files.manifest, id };
+  const dir = ensureWorkspaceDir(id);
+  fs.writeFileSync(path.join(dir, 'workspace.json'), JSON.stringify(manifest, null, 2));
   fs.writeFileSync(path.join(dir, 'model.json'), JSON.stringify(files.model, null, 2));
   fs.writeFileSync(path.join(dir, 'diagrams.json'), JSON.stringify(files.diagrams, null, 2));
 }
@@ -100,9 +118,10 @@ app.post('/api/workspaces', (req, res) => {
   if (!id || !name) {
     return res.status(400).json({ message: 'id and name are required' });
   }
+  const safeId = nextAvailableWorkspaceId(id);
   const now = new Date().toISOString();
   const manifest: WorkspaceManifest = {
-    id,
+    id: safeId,
     name,
     description,
     createdAt: now,
@@ -119,7 +138,8 @@ app.post('/api/workspaces', (req, res) => {
 });
 
 app.post('/api/workspaces/:id/open', (req, res) => {
-  const { id } = req.params;
+  const { id: rawId } = req.params;
+  const id = sanitizeWorkspaceId(rawId);
   try {
     const manifest = loadManifest(id);
     currentWorkspaceId = manifest.id;
@@ -153,6 +173,18 @@ app.get('/api/workspaces/current/load', (_req, res) => {
   }
 });
 
+app.get('/api/workspaces/current/export', (_req, res) => {
+  if (!currentWorkspaceId) {
+    return res.status(400).json({ message: 'No workspace open' });
+  }
+  try {
+    const workspace = loadWorkspace(currentWorkspaceId);
+    res.json(workspace);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to export workspace', details: String(error) });
+  }
+});
+
 app.post('/api/workspaces/current/save', (req, res) => {
   if (!currentWorkspaceId) {
     return res.status(400).json({ message: 'No workspace open' });
@@ -160,9 +192,11 @@ app.post('/api/workspaces/current/save', (req, res) => {
   try {
     const candidate = req.body as WorkspaceFiles;
     const validated = validateWorkspaceFiles(candidate);
-    writeWorkspace(validated);
-    currentWorkspaceId = validated.manifest.id;
-    res.json({ status: 'saved', workspace: validated.manifest });
+    const manifest = { ...validated.manifest, id: sanitizeWorkspaceId(validated.manifest.id) };
+    const workspace: WorkspaceFiles = { ...validated, manifest };
+    writeWorkspace(workspace);
+    currentWorkspaceId = manifest.id;
+    res.json({ status: 'saved', workspace: manifest });
   } catch (error) {
     res.status(400).json({ message: 'Save failed', details: String(error) });
   }
@@ -189,6 +223,20 @@ app.post('/api/workspaces/current/import', (req, res) => {
   }
 });
 
+app.post('/api/workspaces/import', (req, res) => {
+  const candidate = (req.body as { workspace?: WorkspaceFiles } & Partial<WorkspaceFiles>).workspace ?? req.body;
+  try {
+    const validated = validateWorkspaceFiles(candidate as WorkspaceFiles);
+    const manifest = { ...validated.manifest, id: nextAvailableWorkspaceId(validated.manifest.id) };
+    const workspace: WorkspaceFiles = { ...validated, manifest };
+    writeWorkspace(workspace);
+    currentWorkspaceId = manifest.id;
+    res.status(201).json({ status: 'imported', manifest });
+  } catch (error) {
+    res.status(400).json({ message: 'Import failed', details: String(error) });
+  }
+});
+
 app.post('/api/workspaces/current/duplicate', (req, res) => {
   if (!currentWorkspaceId) return res.status(400).json({ message: 'No workspace open' });
   const { id, name } = req.body as Partial<WorkspaceManifest>;
@@ -196,7 +244,7 @@ app.post('/api/workspaces/current/duplicate', (req, res) => {
   try {
     const source = loadWorkspace(currentWorkspaceId);
     const manifest: WorkspaceManifest = {
-      id,
+      id: sanitizeWorkspaceId(id),
       name,
       description: source.manifest.description,
       createdAt: new Date().toISOString(),

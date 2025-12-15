@@ -1,17 +1,45 @@
-import React, { useMemo, useRef, useState } from 'react';
-import type { Diagram, Element } from '@cameotest/shared';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { Diagram, Element, Relationship } from '@cameotest/shared';
+
+type Selection = { kind: 'element' | 'relationship'; id: string };
 
 interface DiagramCanvasProps {
   diagram: Diagram;
   elements: Record<string, Element>;
+  relationships: Record<string, Relationship>;
+  selection?: Selection;
+  selectedNodeIds: string[];
+  onSelectElement?: (elementId?: string) => void;
+  onSelectRelationship?: (relationshipId?: string) => void;
+  onSelectNodes?: (nodeIds: string[]) => void;
   onChange: (diagram: Diagram) => void;
 }
 
 const GRID_SIZE = 20;
 
-export function DiagramCanvas({ diagram, elements, onChange }: DiagramCanvasProps) {
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const dragStart = useRef<{ x: number; y: number; nodeX: number; nodeY: number } | null>(null);
+export function DiagramCanvas({
+  diagram,
+  elements,
+  relationships,
+  selection,
+  selectedNodeIds,
+  onSelectElement,
+  onSelectRelationship,
+  onSelectNodes,
+  onChange,
+}: DiagramCanvasProps) {
+  const dragStart = useRef<
+    | {
+        x: number;
+        y: number;
+        nodes: { id: string; x: number; y: number }[];
+      }
+    | null
+  >(null);
+  const panStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const marqueeStart = useRef<{ x: number; y: number } | null>(null);
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
   const nodesById = useMemo(() => {
     const map = new Map(diagram.nodes.map((node) => [node.id, node]));
@@ -20,36 +48,136 @@ export function DiagramCanvas({ diagram, elements, onChange }: DiagramCanvasProp
 
   const view = diagram.viewSettings;
 
-  const updateNodePosition = (id: string, x: number, y: number) => {
+  const toDiagramPoint = (event: React.PointerEvent | PointerEvent) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    const x = (event.clientX - rect.left) / view.zoom - view.panX;
+    const y = (event.clientY - rect.top) / view.zoom - view.panY;
+    return { x, y };
+  };
+
+  const updateNodePositions = (
+    nodes: { id: string; x: number; y: number }[],
+    dx: number,
+    dy: number,
+  ) => {
     const snap = view.snapEnabled ? GRID_SIZE : 1;
-    const snappedX = Math.round(x / snap) * snap;
-    const snappedY = Math.round(y / snap) * snap;
-    const nextNodes = diagram.nodes.map((node) => (node.id === id ? { ...node, x: snappedX, y: snappedY } : node));
+    const nextNodes = diagram.nodes.map((node) => {
+      const match = nodes.find((candidate) => candidate.id === node.id);
+      if (!match) return node;
+      const snappedX = Math.round((match.x + dx) / snap) * snap;
+      const snappedY = Math.round((match.y + dy) / snap) * snap;
+      return { ...node, x: snappedX, y: snappedY };
+    });
     onChange({ ...diagram, nodes: nextNodes });
   };
 
   const handlePointerDown = (event: React.PointerEvent, nodeId: string) => {
     event.preventDefault();
+    event.stopPropagation();
     const node = nodesById.get(nodeId);
     if (!node) return;
-    dragStart.current = { x: event.clientX, y: event.clientY, nodeX: node.x, nodeY: node.y };
-    setDraggingId(nodeId);
+    const alreadySelected = selectedNodeIds.includes(nodeId);
+    const nextSelection = event.shiftKey
+      ? alreadySelected
+        ? selectedNodeIds.filter((id) => id !== nodeId)
+        : [...selectedNodeIds, nodeId]
+      : [nodeId];
+    onSelectNodes?.(nextSelection);
+    if (onSelectElement) {
+      onSelectElement(node.elementId);
+    }
+    dragStart.current = {
+      x: event.clientX,
+      y: event.clientY,
+      nodes: (nextSelection.length > 0 ? nextSelection : [nodeId]).map((id) => {
+        const currentNode = nodesById.get(id) ?? node;
+        return { id, x: currentNode.x, y: currentNode.y };
+      }),
+    };
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
   };
 
   const handlePointerMove = (event: PointerEvent) => {
-    if (!dragStart.current || !draggingId) return;
+    if (!dragStart.current || dragStart.current.nodes.length === 0) return;
     const dx = (event.clientX - dragStart.current.x) / view.zoom;
     const dy = (event.clientY - dragStart.current.y) / view.zoom;
-    updateNodePosition(draggingId, dragStart.current.nodeX + dx, dragStart.current.nodeY + dy);
+    updateNodePositions(dragStart.current.nodes, dx, dy);
   };
 
   const handlePointerUp = () => {
-    setDraggingId(null);
     dragStart.current = null;
     window.removeEventListener('pointermove', handlePointerMove);
     window.removeEventListener('pointerup', handlePointerUp);
+  };
+
+  const handleCanvasPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
+    if ((event.target as globalThis.Element | null)?.closest('.diagram-node')) return;
+    event.preventDefault();
+    onSelectNodes?.([]);
+    onSelectElement?.(undefined);
+    onSelectRelationship?.(undefined);
+    const isPan = event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey;
+    if (isPan) {
+      panStart.current = { x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY };
+      window.addEventListener('pointermove', handleCanvasPointerMove);
+      window.addEventListener('pointerup', handleCanvasPointerUp);
+      return;
+    }
+    const startPoint = toDiagramPoint(event);
+    marqueeStart.current = startPoint;
+    setMarquee({ x: startPoint.x, y: startPoint.y, w: 0, h: 0 });
+    window.addEventListener('pointermove', handleMarqueePointerMove);
+    window.addEventListener('pointerup', handleMarqueePointerUp);
+  };
+
+  const handleCanvasPointerMove = (event: PointerEvent) => {
+    if (!panStart.current) return;
+    const dx = (event.clientX - panStart.current.x) / view.zoom;
+    const dy = (event.clientY - panStart.current.y) / view.zoom;
+    onChange({
+      ...diagram,
+      viewSettings: { ...view, panX: panStart.current.panX + dx, panY: panStart.current.panY + dy },
+    });
+  };
+
+  const handleCanvasPointerUp = () => {
+    panStart.current = null;
+    window.removeEventListener('pointermove', handleCanvasPointerMove);
+    window.removeEventListener('pointerup', handleCanvasPointerUp);
+  };
+
+  const handleMarqueePointerMove = (event: PointerEvent) => {
+    if (!marqueeStart.current) return;
+    const point = toDiagramPoint(event);
+    const x = Math.min(point.x, marqueeStart.current.x);
+    const y = Math.min(point.y, marqueeStart.current.y);
+    const w = Math.abs(point.x - marqueeStart.current.x);
+    const h = Math.abs(point.y - marqueeStart.current.y);
+    setMarquee({ x, y, w, h });
+  };
+
+  const handleMarqueePointerUp = () => {
+    if (marquee) {
+      const selected = diagram.nodes
+        .filter((node) =>
+          node.x >= marquee.x &&
+          node.y >= marquee.y &&
+          node.x + node.w <= marquee.x + marquee.w &&
+          node.y + node.h <= marquee.y + marquee.h,
+        )
+        .map((node) => node.id);
+      onSelectNodes?.(selected);
+      const firstElement = diagram.nodes.find((node) => selected.includes(node.id))?.elementId;
+      if (firstElement && onSelectElement) {
+        onSelectElement(firstElement);
+      }
+    }
+    marqueeStart.current = null;
+    setMarquee(null);
+    window.removeEventListener('pointermove', handleMarqueePointerMove);
+    window.removeEventListener('pointerup', handleMarqueePointerUp);
   };
 
   const toggleView = (key: 'gridEnabled' | 'snapEnabled') => {
@@ -64,6 +192,23 @@ export function DiagramCanvas({ diagram, elements, onChange }: DiagramCanvasProp
   const panBy = (dx: number, dy: number) => {
     onChange({ ...diagram, viewSettings: { ...view, panX: view.panX + dx, panY: view.panY + dy } });
   };
+
+  const handleWheel = (event: React.WheelEvent) => {
+    event.preventDefault();
+    const factor = event.deltaY > 0 ? 0.9 : 1.1;
+    zoomBy(factor);
+  };
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointermove', handleCanvasPointerMove);
+      window.removeEventListener('pointerup', handleCanvasPointerUp);
+      window.removeEventListener('pointermove', handleMarqueePointerMove);
+      window.removeEventListener('pointerup', handleMarqueePointerUp);
+    };
+  }, [handleCanvasPointerMove, handleCanvasPointerUp, handleMarqueePointerMove, handleMarqueePointerUp, handlePointerMove, handlePointerUp]);
 
   const pointsForEdge = (sourceId: string, targetId: string, routing: { x: number; y: number }[]) => {
     const source = nodesById.get(sourceId);
@@ -110,34 +255,66 @@ export function DiagramCanvas({ diagram, elements, onChange }: DiagramCanvasProp
       <div
         className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}`}
         style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
+        onWheel={handleWheel}
       >
-        <svg width="100%" height="100%" viewBox="0 0 1200 800">
+        <svg
+          ref={svgRef}
+          width="100%"
+          height="100%"
+          viewBox="0 0 1200 800"
+          onPointerDown={handleCanvasPointerDown}
+        >
           <g transform={`translate(${view.panX} ${view.panY}) scale(${view.zoom})`}>
-            {diagram.edges.map((edge) => (
-              <polyline
-                key={edge.id}
-                points={pointsForEdge(edge.sourceNodeId, edge.targetNodeId, edge.routingPoints)}
-                fill="none"
-                stroke="#4f46e5"
-                strokeWidth={2}
-                markerEnd="url(#arrow)"
-              />
-            ))}
+            {diagram.edges.map((edge) => {
+              const points = pointsForEdge(edge.sourceNodeId, edge.targetNodeId, edge.routingPoints);
+              const relationship = relationships[edge.relationshipId];
+              if (!points) return null;
+              const isSelected = selection?.kind === 'relationship' && selection.id === edge.relationshipId;
+              const isDangling = !relationship;
+              return (
+                <polyline
+                  key={edge.id}
+                  className={`diagram-edge${isSelected ? ' diagram-edge--selected' : ''}${
+                    isDangling ? ' diagram-edge--dangling' : ''
+                  }`}
+                  points={points}
+                  fill="none"
+                  strokeWidth={2}
+                  markerEnd="url(#arrow)"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    if (relationship && onSelectRelationship) {
+                      onSelectRelationship(relationship.id);
+                    }
+                  }}
+                />
+              );
+            })}
             {diagram.nodes.map((node) => {
               const element = elements[node.elementId];
+              const missing = !element;
+              const isSelected = selectedNodeIds.includes(node.id) || (selection?.kind === 'element' && element?.id === selection.id);
+              const selectedRelationship =
+                selection?.kind === 'relationship' ? relationships[selection.id] : undefined;
+              const isRelated =
+                !!selectedRelationship &&
+                (selectedRelationship.sourceId === node.elementId ||
+                  selectedRelationship.targetId === node.elementId);
               return (
                 <g
                   key={node.id}
                   transform={`translate(${node.x} ${node.y})`}
-                  className="diagram-node"
+                  className={`diagram-node${isSelected ? ' diagram-node--selected' : ''}${
+                    missing ? ' diagram-node--missing' : ''
+                  }${isRelated ? ' diagram-node--related' : ''}`}
                   onPointerDown={(event) => handlePointerDown(event, node.id)}
                 >
                   <rect width={node.w} height={node.h} rx={8} ry={8} />
                   <text x={12} y={24} className="diagram-node__title">
-                    {element?.name ?? 'Unnamed'}
+                    {element?.name ?? 'Missing element'}
                   </text>
                   <text x={12} y={42} className="diagram-node__meta">
-                    {element?.metaclass ?? ''}
+                    {element?.metaclass ?? 'Not found'}
                   </text>
                 </g>
               );
@@ -148,6 +325,15 @@ export function DiagramCanvas({ diagram, elements, onChange }: DiagramCanvasProp
               <path d="M0,0 L0,6 L9,3 z" fill="#4f46e5" />
             </marker>
           </defs>
+          {marquee && (
+            <rect
+              className="diagram-marquee"
+              x={marquee.x * view.zoom + view.panX * view.zoom}
+              y={marquee.y * view.zoom + view.panY * view.zoom}
+              width={marquee.w * view.zoom}
+              height={marquee.h * view.zoom}
+            />
+          )}
         </svg>
       </div>
     </div>
