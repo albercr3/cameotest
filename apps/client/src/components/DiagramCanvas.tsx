@@ -22,7 +22,7 @@ interface DiagramCanvasProps {
   onPartContextMenu?: (
     payload: { elementId: string; clientX: number; clientY: number; position: { x: number; y: number } },
   ) => void;
-  onChange: (diagram: Diagram) => void;
+  onChange: (diagram: Diagram, options?: { transient?: boolean; historyKey?: string }) => void;
 }
 
 const GRID_SIZE = 20;
@@ -54,7 +54,15 @@ export function DiagramCanvas({
   >(null);
   const panStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const marqueeStart = useRef<{ x: number; y: number } | null>(null);
+  const nodeDragKey = useRef<string | null>(null);
+  const nodeDragMoved = useRef(false);
+  const portDragRef = useRef<
+    | { portId: string; historyKey: string; initialPlacement?: { side: 'N' | 'E' | 'S' | 'W'; offset: number } }
+    | null
+  >(null);
+  const portDragMoved = useRef(false);
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [draggingPortId, setDraggingPortId] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const nodesById = useMemo(() => {
@@ -80,6 +88,7 @@ export function DiagramCanvas({
     nodes: { id: string; x: number; y: number }[],
     dx: number,
     dy: number,
+    options?: { transient?: boolean; historyKey?: string },
   ) => {
     const snap = view.snapEnabled ? GRID_SIZE : 1;
     const nextNodes = diagram.nodes.map((node) => {
@@ -98,7 +107,7 @@ export function DiagramCanvas({
       }
       return { ...node, x: nextX, y: nextY };
     });
-    onChange({ ...diagram, nodes: nextNodes });
+    onChange({ ...diagram, nodes: nextNodes }, options);
   };
 
   const startPan = (event: React.PointerEvent | PointerEvent) => {
@@ -133,6 +142,8 @@ export function DiagramCanvas({
     }
     const target = event.currentTarget as SVGGElement | null;
     target?.setPointerCapture(event.pointerId);
+    nodeDragKey.current = crypto.randomUUID();
+    nodeDragMoved.current = false;
     dragStart.current = {
       x: event.clientX,
       y: event.clientY,
@@ -149,10 +160,19 @@ export function DiagramCanvas({
     if (!dragStart.current || dragStart.current.nodes.length === 0) return;
     const dx = (event.clientX - dragStart.current.x) / view.zoom;
     const dy = (event.clientY - dragStart.current.y) / view.zoom;
-    updateNodePositions(dragStart.current.nodes, dx, dy);
+    nodeDragMoved.current = nodeDragMoved.current || dx !== 0 || dy !== 0;
+    updateNodePositions(dragStart.current.nodes, dx, dy, {
+      transient: true,
+      historyKey: nodeDragKey.current ?? undefined,
+    });
   };
 
   const handlePointerUp = () => {
+    if (nodeDragMoved.current && nodeDragKey.current) {
+      onChange(diagram, { historyKey: nodeDragKey.current });
+    }
+    nodeDragKey.current = null;
+    nodeDragMoved.current = false;
     dragStart.current = null;
     window.removeEventListener('pointermove', handlePointerMove);
     window.removeEventListener('pointerup', handlePointerUp);
@@ -299,6 +319,47 @@ export function DiagramCanvas({
         const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
         return nodeKind === 'Part' && node.elementId === partId;
       });
+    const ownerRectForPort = (portElement?: Element) => {
+      const owner = portElement?.ownerId ? elements[portElement.ownerId] : undefined;
+      if (owner?.metaclass === 'Block' && owner.id === diagram.contextBlockId) {
+        return { rect: frame, ownerKind: 'block' as const };
+      }
+      if (owner?.metaclass === 'Part') {
+        const partNode = findPartNode(owner.id);
+        if (partNode) {
+          return {
+            rect: { x: partNode.x, y: partNode.y, w: partNode.w, h: partNode.h },
+            ownerKind: 'part' as const,
+          };
+        }
+      }
+      return null;
+    };
+    const placementFromPoint = (
+      point: { x: number; y: number },
+      rect: { x: number; y: number; w: number; h: number },
+    ): { side: 'N' | 'E' | 'S' | 'W'; offset: number } => {
+      const distances = [
+        { side: 'N' as const, value: Math.abs(point.y - rect.y) },
+        { side: 'S' as const, value: Math.abs(point.y - (rect.y + rect.h)) },
+        { side: 'W' as const, value: Math.abs(point.x - rect.x) },
+        { side: 'E' as const, value: Math.abs(point.x - (rect.x + rect.w)) },
+      ];
+      const closest = distances.reduce((best, candidate) => (candidate.value < best.value ? candidate : best));
+      let offset = 0;
+      switch (closest.side) {
+        case 'N':
+        case 'S':
+          offset = (point.x - rect.x) / rect.w;
+          break;
+        case 'E':
+        case 'W':
+        default:
+          offset = (point.y - rect.y) / rect.h;
+          break;
+      }
+      return { side: closest.side, offset: Math.min(1, Math.max(0, offset)) };
+    };
     const portPositions = new Map<string, { x: number; y: number; ownerKind: 'block' | 'part' }>();
     diagram.nodes.forEach((node) => {
       const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
@@ -306,20 +367,9 @@ export function DiagramCanvas({
       const element = elements[node.elementId];
       const placement = node.placement ?? { side: 'N', offset: 0.5 };
       const clampedOffset = Math.min(1, Math.max(0, placement.offset));
-      const owner = element?.ownerId ? elements[element.ownerId] : undefined;
-      let rect: { x: number; y: number; w: number; h: number } | null = null;
-      let ownerKind: 'block' | 'part' = 'block';
-      if (owner?.metaclass === 'Block' && owner.id === diagram.contextBlockId) {
-        rect = frame;
-        ownerKind = 'block';
-      } else if (owner?.metaclass === 'Part') {
-        const partNode = findPartNode(owner.id);
-        if (partNode) {
-          rect = { x: partNode.x, y: partNode.y, w: partNode.w, h: partNode.h };
-          ownerKind = 'part';
-        }
-      }
-      if (!rect) return;
+      const ownerInfo = ownerRectForPort(element);
+      if (!ownerInfo) return;
+      const { rect, ownerKind } = ownerInfo;
       let x = rect.x;
       let y = rect.y;
       switch (placement.side) {
@@ -383,13 +433,57 @@ export function DiagramCanvas({
       return { pointString, midpoint } as const;
     };
 
+    const resetRouting = () => {
+      const edges = diagram.edges.map((edge) => ({ ...edge, routingPoints: [] }));
+      onChange({ ...diagram, edges });
+    };
+
+    const handlePortPointerMove = (event: PointerEvent) => {
+      const active = portDragRef.current;
+      if (!active) return;
+      const node = nodesById.get(active.portId);
+      if (!node) return;
+      const element = elements[node.elementId];
+      const ownerInfo = ownerRectForPort(element);
+      if (!ownerInfo) return;
+      const placement = placementFromPoint(toDiagramPoint(event), ownerInfo.rect);
+      const currentPlacement = node.placement ?? { side: 'N', offset: 0.5 };
+      if (currentPlacement.side === placement.side && currentPlacement.offset === placement.offset) return;
+      portDragMoved.current = true;
+      const nextNodes = diagram.nodes.map((candidate) =>
+        candidate.id === active.portId ? { ...candidate, placement } : candidate,
+      );
+      onChange({ ...diagram, nodes: nextNodes }, { transient: true, historyKey: active.historyKey });
+    };
+
+    const handlePortPointerUp = () => {
+      if (portDragRef.current) {
+        if (portDragMoved.current) {
+          onChange(diagram, { historyKey: portDragRef.current.historyKey });
+        }
+        portDragRef.current = null;
+      }
+      portDragMoved.current = false;
+      setDraggingPortId(null);
+      window.removeEventListener('pointermove', handlePortPointerMove);
+      window.removeEventListener('pointerup', handlePortPointerUp);
+    };
+
     const handlePortPointerDown = (event: React.PointerEvent, nodeId: string) => {
       event.preventDefault();
       event.stopPropagation();
+      if (event.button !== 0) return;
       const node = nodesById.get(nodeId);
       if (!node) return;
       onSelectNodes?.([nodeId]);
       onPortSelect?.(node.elementId, nodeId);
+      portDragMoved.current = false;
+      portDragRef.current = { portId: nodeId, historyKey: crypto.randomUUID(), initialPlacement: node.placement };
+      setDraggingPortId(nodeId);
+      const target = event.currentTarget as SVGGElement | null;
+      target?.setPointerCapture(event.pointerId);
+      window.addEventListener('pointermove', handlePortPointerMove);
+      window.addEventListener('pointerup', handlePortPointerUp);
     };
 
     const handleIbdCanvasPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
@@ -414,6 +508,9 @@ export function DiagramCanvas({
           </button>
           <button type="button" className="button" onClick={() => toggleView('snapEnabled')}>
             {view.snapEnabled ? 'Disable Snap' : 'Enable Snap'}
+          </button>
+          <button type="button" className="button" onClick={resetRouting}>
+            Reset Routing
           </button>
           <div className="zoom-group">
             <button type="button" className="button" onClick={() => zoomBy(0.9)}>
@@ -579,6 +676,7 @@ export function DiagramCanvas({
                       key={node.id}
                       className={portClass}
                       onPointerDown={(event) => handlePortPointerDown(event, node.id)}
+                      style={{ cursor: draggingPortId === node.id ? 'grabbing' : 'grab' }}
                     >
                       {isPartPort ? (
                         <rect x={position.x - 7} y={position.y - 7} width={14} height={14} rx={3} ry={3} />
