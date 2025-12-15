@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { Diagram, Element } from '@cameotest/shared';
+import { ELEMENT_DRAG_MIME } from '../dragTypes';
 
 export interface ModelBrowserNode {
   element: Element;
@@ -18,6 +19,7 @@ interface ModelBrowserProps {
   onAddToDiagram?: () => void;
   activeDiagram?: Diagram;
   disableActions?: boolean;
+  onContextMenu?: (element: Element, clientPosition: { x: number; y: number }) => void;
 }
 
 export function ModelBrowser({
@@ -32,6 +34,7 @@ export function ModelBrowser({
   onAddToDiagram,
   activeDiagram,
   disableActions,
+  onContextMenu,
 }: ModelBrowserProps) {
   const normalizedSearch = search.trim().toLowerCase();
 
@@ -52,11 +55,24 @@ export function ModelBrowser({
       <ul className="tree">
         {nodes.map((node) => {
           const isSelected = node.element.id === selectedId;
+          const handleDragStart = (event: React.DragEvent) => {
+            event.dataTransfer.effectAllowed = 'copy';
+            event.dataTransfer.setData(
+              ELEMENT_DRAG_MIME,
+              JSON.stringify({ elementId: node.element.id, elementType: node.element.metaclass }),
+            );
+          };
           return (
             <li key={node.element.id}>
               <button
                 className={`tree__item${isSelected ? ' tree__item--selected' : ''}`}
                 onClick={() => onSelect(node.element.id)}
+                draggable
+                onDragStart={handleDragStart}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  onContextMenu?.(node.element, { x: event.clientX, y: event.clientY });
+                }}
               >
                 <span className="tree__title">{node.element.name}</span>
                 <span className="tree__meta">{node.element.metaclass}</span>

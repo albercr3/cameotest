@@ -17,6 +17,9 @@ import { ModelBrowser, ModelBrowserNode } from './components/ModelBrowser';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { DiagramCanvas } from './components/DiagramCanvas';
 import { DiagramTabs } from './components/DiagramTabs';
+import { ToastItem, ToastStack } from './components/Toast';
+import { DraggedElementPayload } from './dragTypes';
+import exampleWorkspace from './examples/example-workspace.json';
 
 interface WorkspacePayload {
   manifest: WorkspaceManifest;
@@ -32,6 +35,10 @@ type HistoryEntry = {
   selectedNodeIds: string[];
   activeDiagramId?: string;
 };
+
+type ContextMenuState =
+  | { kind: 'tree'; x: number; y: number; elementId: string }
+  | { kind: 'canvas'; x: number; y: number; position: { x: number; y: number } };
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -101,6 +108,7 @@ export default function App() {
   const [dirty, setDirty] = useState(false);
   const [activeDiagramId, setActiveDiagramId] = useState<string | undefined>();
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
+  const [loadingExample, setLoadingExample] = useState(false);
   const [importingWorkspace, setImportingWorkspace] = useState(false);
   const [importingSysml, setImportingSysml] = useState(false);
   const [banner, setBanner] = useState<{ kind: 'error' | 'info'; messages: string[] } | null>(null);
@@ -111,12 +119,34 @@ export default function App() {
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
   const [connectMode, setConnectMode] = useState(false);
   const [pendingConnectorPortId, setPendingConnectorPortId] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const addOffset = useRef(0);
   const ibdPartOffset = useRef(0);
   const pasteOffset = useRef(0);
   const clipboardNodesRef = useRef<Diagram['nodes']>([]);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const sysmlImportInputRef = useRef<HTMLInputElement | null>(null);
+
+  const showToast = useCallback((message: string, kind: ToastItem['kind'] = 'info') => {
+    const id = crypto.randomUUID();
+    setToasts((current) => [...current, { id, message, kind }]);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('contextmenu', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('contextmenu', close);
+    };
+  }, [contextMenu]);
 
   const selectElement = (id?: string) => setSelection(id ? { kind: 'element', id } : undefined);
   const selectRelationship = (id?: string) => setSelection(id ? { kind: 'relationship', id } : undefined);
@@ -227,6 +257,10 @@ export default function App() {
     });
     return roots;
   }, [payload]);
+
+  const handleTreeContextMenu = (element: Element, clientPosition: { x: number; y: number }) => {
+    setContextMenu({ kind: 'tree', x: clientPosition.x, y: clientPosition.y, elementId: element.id });
+  };
 
   const selectedElement = useMemo(() => {
     if (!payload || !selection || selection.kind !== 'element') return undefined;
@@ -456,6 +490,27 @@ export default function App() {
     }
   };
 
+  const loadExampleWorkspace = async () => {
+    setLoadingExample(true);
+    try {
+      setStatus('Loading example workspace...');
+      const response = await postJson<{ manifest: WorkspaceManifest }>('/api/workspaces/import', {
+        workspace: exampleWorkspace,
+      });
+      await refreshWorkspaces();
+      setActiveId(response.manifest.id);
+      setBanner(null);
+      setStatus('Ready');
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      setBanner({ kind: 'error', messages: ['Unable to load example workspace', message] });
+      setStatus('Example load failed');
+    } finally {
+      setLoadingExample(false);
+    }
+  };
+
   const handleImportWorkspace = async (file: File) => {
     setImportingWorkspace(true);
     try {
@@ -549,10 +604,10 @@ export default function App() {
     }
   };
 
-  const createElement = (metaclass: 'Package' | 'Block') => {
+  const createElement = (metaclass: 'Package' | 'Block', ownerOverride?: string | null) => {
     if (!payload) return;
     const now = new Date().toISOString();
-    const ownerId = selectContainerId(selection?.kind === 'element' ? selection.id : undefined);
+    const ownerId = ownerOverride ?? selectContainerId(selection?.kind === 'element' ? selection.id : undefined);
     const baseName = metaclass === 'Package' ? 'NewPackage' : 'NewBlock';
     const name = dedupeName(baseName, ownerId);
     const element: Element = {
@@ -572,6 +627,7 @@ export default function App() {
       model: { ...current.model, elements: [...current.model.elements, element] },
     }));
     selectElement(element.id);
+    return element.id;
   };
 
   const createPort = (ownerId: string) => {
@@ -596,6 +652,7 @@ export default function App() {
       model: { ...current.model, elements: [...current.model.elements, element] },
     }));
     selectElement(element.id);
+    return element.id;
   };
 
   const createPart = (ownerBlockId: string, typeBlockId?: string) => {
@@ -626,7 +683,7 @@ export default function App() {
       model: { ...current.model, elements: [...current.model.elements, element] },
     }));
     selectElement(element.id);
-    return element.id;
+    return element;
   };
 
   const deleteElement = (id: string) => {
@@ -677,7 +734,11 @@ export default function App() {
     setSelectedNodeIds((current) => current.filter((nodeId) => !toDelete.has(nodeId)));
   };
 
-  const ensureNodeInDiagram = (diagram: Diagram, elementId: string) => {
+  const ensureNodeInDiagram = (
+    diagram: Diagram,
+    elementId: string,
+    position?: { x: number; y: number },
+  ) => {
     if (!isBddDiagram(diagram)) {
       return { diagram, nodeId: elementId };
     }
@@ -692,8 +753,8 @@ export default function App() {
       id: crypto.randomUUID(),
       elementId,
       kind: 'Element',
-      x: view.panX + 400 + offset,
-      y: view.panY + 240 + offset,
+      x: position?.x ?? view.panX + 400 + offset,
+      y: position?.y ?? view.panY + 240 + offset,
       w: 180,
       h: 100,
       compartments: { collapsed: false, showParts: true, showPorts: true },
@@ -702,7 +763,11 @@ export default function App() {
     return { diagram: { ...diagram, nodes: [...diagram.nodes, node] }, nodeId: node.id };
   };
 
-  const addPortToIbdDiagram = (diagram: Diagram, portId: string, options?: { select?: boolean }) => {
+  const addPortToIbdDiagram = (
+    diagram: Diagram,
+    portId: string,
+    options?: { select?: boolean; position?: { x: number; y: number } },
+  ) => {
     if (!payload || !isIbdDiagram(diagram)) return;
     const existing = diagram.nodes.find((node) => node.elementId === portId);
     if (existing) {
@@ -713,13 +778,42 @@ export default function App() {
       return existing.id;
     }
 
+    const frame = IBD_FRAME;
     const sides: Array<'N' | 'E' | 'S' | 'W'> = ['N', 'E', 'S', 'W'];
     const counts = sides.map((side) => diagram.nodes.filter((node) => node.placement?.side === side).length);
-    const minCount = Math.min(...counts);
-    const sideIndex = Math.max(0, counts.indexOf(minCount));
-    const side = sides[sideIndex];
-    const countForSide = counts[sideIndex] ?? 0;
-    const offset = countForSide === 0 ? 0.25 : Math.min(0.9, (countForSide + 1) / (countForSide + 2));
+
+    const defaultSide = () => {
+      const minCount = Math.min(...counts);
+      const sideIndex = Math.max(0, counts.indexOf(minCount));
+      return sides[sideIndex];
+    };
+
+    const derivePlacementFromPosition = () => {
+      if (!options?.position) return null;
+      const { x, y } = options.position;
+      const clampedX = Math.min(Math.max(x, frame.x), frame.x + frame.w);
+      const clampedY = Math.min(Math.max(y, frame.y), frame.y + frame.h);
+      const distances = [
+        { side: 'N' as const, distance: Math.abs(clampedY - frame.y) },
+        { side: 'S' as const, distance: Math.abs(clampedY - (frame.y + frame.h)) },
+        { side: 'W' as const, distance: Math.abs(clampedX - frame.x) },
+        { side: 'E' as const, distance: Math.abs(clampedX - (frame.x + frame.w)) },
+      ];
+      const closest = distances.reduce((best, candidate) =>
+        candidate.distance < best.distance ? candidate : best,
+      );
+      const offset =
+        closest.side === 'N' || closest.side === 'S'
+          ? (clampedX - frame.x) / frame.w
+          : (clampedY - frame.y) / frame.h;
+      return { side: closest.side, offset };
+    };
+
+    const placementFromPosition = derivePlacementFromPosition();
+    const side = placementFromPosition?.side ?? defaultSide();
+    const countForSide = counts[sides.indexOf(side)] ?? 0;
+    const offset =
+      placementFromPosition?.offset ?? (countForSide === 0 ? 0.25 : Math.min(0.9, (countForSide + 1) / (countForSide + 2)));
     const placement = { side, offset } as const;
 
     const node = {
@@ -744,9 +838,13 @@ export default function App() {
     return node.id;
   };
 
-  const addPartToIbdDiagram = (diagram: Diagram, partId: string, options?: { select?: boolean }) => {
+  const addPartToIbdDiagram = (
+    diagram: Diagram,
+    partId: string,
+    options?: { select?: boolean; position?: { x: number; y: number }; partElement?: Element },
+  ) => {
     if (!payload || !isIbdDiagram(diagram)) return;
-    const part = elementsById[partId];
+    const part = options?.partElement ?? elementsById[partId];
     if (!part || part.metaclass !== 'Part' || part.ownerId !== diagram.contextBlockId) return;
 
     const existing = diagram.nodes.find((node) => node.elementId === partId);
@@ -760,12 +858,18 @@ export default function App() {
 
     const offset = 32 + (ibdPartOffset.current % 5) * 18;
     ibdPartOffset.current += 1;
+    const baseX = options?.position?.x ?? IBD_FRAME.x + IBD_FRAME.w / 2 - 90 + offset;
+    const baseY = options?.position?.y ?? IBD_FRAME.y + IBD_FRAME.h / 2 - 50 + offset;
+    const maxX = IBD_FRAME.x + IBD_FRAME.w - 180;
+    const maxY = IBD_FRAME.y + IBD_FRAME.h - 100;
+    const clampedX = Math.min(Math.max(baseX, IBD_FRAME.x), maxX);
+    const clampedY = Math.min(Math.max(baseY, IBD_FRAME.y), maxY);
     const node = {
       id: crypto.randomUUID(),
       elementId: partId,
       kind: 'Part',
-      x: IBD_FRAME.x + IBD_FRAME.w / 2 - 90 + offset,
-      y: IBD_FRAME.y + IBD_FRAME.h / 2 - 50 + offset,
+      x: clampedX,
+      y: clampedY,
       w: 180,
       h: 100,
       compartments: { collapsed: false, showParts: true, showPorts: true },
@@ -803,6 +907,86 @@ export default function App() {
       setSelectedNodeIds([result.nodeId]);
     }
     return result.nodeId;
+  };
+
+  const createBddDiagram = (ownerId: string | null, baseName = 'New Diagram') => {
+    if (!payload) return;
+    const now = new Date().toISOString();
+    const name = dedupeName(baseName, ownerId);
+    const diagram = normalizeDiagram({
+      id: crypto.randomUUID(),
+      name,
+      kind: 'BDD',
+      type: 'BDD',
+      ownerId,
+      nodes: [],
+      edges: [],
+      viewSettings: { gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 },
+    } as Diagram);
+
+    applyChange((current) => ({
+      ...current,
+      manifest: { ...current.manifest, updatedAt: now },
+      diagrams: { diagrams: [...current.diagrams.diagrams.map(normalizeDiagram), diagram] },
+    }));
+
+    setActiveDiagramId(diagram.id);
+    setSelectedNodeIds([]);
+    return diagram.id;
+  };
+
+  const handleDropElement = (payload: DraggedElementPayload, position: { x: number; y: number }) => {
+    if (!payload?.elementId || !activeDiagram) return;
+    const element = elementsById[payload.elementId];
+    if (!element) {
+      showToast('Dropped element not found', 'error');
+      return;
+    }
+
+    if (isBddDiagram(activeDiagram)) {
+      const existing = activeDiagram.nodes.find((node) => node.elementId === element.id);
+      if (existing) {
+        setSelectedNodeIds([existing.id]);
+        selectElement(element.id);
+        showToast('Element already present in diagram');
+        return;
+      }
+      const result = ensureNodeInDiagram(activeDiagram, element.id, position);
+      updateDiagram(activeDiagram.id, result.diagram);
+      setSelectedNodeIds([result.nodeId]);
+      selectElement(element.id);
+      return;
+    }
+
+    if (isIbdDiagram(activeDiagram)) {
+      if (element.ownerId !== activeDiagram.contextBlockId) {
+        showToast('Only parts or ports owned by the context block can be dropped here', 'error');
+        return;
+      }
+      if (element.metaclass === 'Part') {
+        const id = addPartToIbdDiagram(activeDiagram, element.id, { select: true, position });
+        if (!id) {
+          showToast('Unable to place part on this diagram', 'error');
+        }
+        return;
+      }
+      if (element.metaclass === 'Port') {
+        const id = addPortToIbdDiagram(activeDiagram, element.id, { select: true, position });
+        if (!id) {
+          showToast('Unable to place port on this diagram', 'error');
+        }
+        return;
+      }
+      showToast('Only parts or ports can be dropped on an IBD', 'error');
+    }
+  };
+
+  const handleCanvasContextMenu = (payload: {
+    clientX: number;
+    clientY: number;
+    position: { x: number; y: number };
+  }) => {
+    setContextMenu({ kind: 'canvas', x: payload.clientX, y: payload.clientY, position: payload.position });
   };
 
   const findIbdForBlock = (blockId: string) =>
@@ -1250,6 +1434,135 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [autosaveEnabled, dirty, handleSave, payload, saving]);
 
+  const contextMenuNode = (() => {
+    if (!contextMenu) return null;
+    if (contextMenu.kind === 'tree') {
+      const target = elementsById[contextMenu.elementId];
+      if (!target) return null;
+      const ownerForElements =
+        target.metaclass === 'Package' ? target.id : selectContainerId(target.id ?? undefined);
+      const createPackage = () => {
+        createElement('Package', target.metaclass === 'Package' ? target.id : ownerForElements);
+        setContextMenu(null);
+      };
+      const createBlock = () => {
+        createElement('Block', ownerForElements);
+        setContextMenu(null);
+      };
+      const createPartHere = () => {
+        const part = target.metaclass === 'Block' ? createPart(target.id) : undefined;
+        if (part && activeDiagram && isIbdDiagram(activeDiagram) && activeDiagram.contextBlockId === target.id) {
+          addPartToIbdDiagram(activeDiagram, part.id, { select: true, partElement: part });
+        }
+        setContextMenu(null);
+      };
+      const createPortHere = () => {
+        if (target.metaclass !== 'Block') return;
+        const portId = createPort(target.id);
+        if (portId && activeDiagram && isIbdDiagram(activeDiagram) && activeDiagram.contextBlockId === target.id) {
+          addPortToIbdDiagram(activeDiagram, portId, { select: true });
+        }
+        setContextMenu(null);
+      };
+      const createTreeBdd = () => {
+        createBddDiagram(ownerForElements ?? null, `${target.name} BDD`);
+        setContextMenu(null);
+      };
+      const createTreeIbd = () => {
+        if (target.metaclass !== 'Block') return;
+        createIbdDiagramForBlock(target);
+        setContextMenu(null);
+      };
+      return (
+        <div
+          className="context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="context-menu__title">{target.name}</div>
+          <div className="context-menu__group">
+            <button type="button" onClick={createPackage} className="context-menu__item">
+              Create package
+            </button>
+            <button type="button" onClick={createBlock} className="context-menu__item">
+              Create block
+            </button>
+            <button
+              type="button"
+              onClick={createPartHere}
+              className="context-menu__item"
+              disabled={target.metaclass !== 'Block'}
+            >
+              Create part
+            </button>
+            <button
+              type="button"
+              onClick={createPortHere}
+              className="context-menu__item"
+              disabled={target.metaclass !== 'Block'}
+            >
+              Create port
+            </button>
+          </div>
+          <div className="context-menu__group">
+            <button type="button" onClick={createTreeBdd} className="context-menu__item">
+              Create BDD diagram
+            </button>
+            <button
+              type="button"
+              onClick={createTreeIbd}
+              className="context-menu__item"
+              disabled={target.metaclass !== 'Block'}
+            >
+              Create IBD diagram
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (contextMenu.kind === 'canvas' && activeDiagram) {
+      const createHere = () => {
+        if (isBddDiagram(activeDiagram)) {
+          const ownerId =
+            selectContainerId(selection?.kind === 'element' ? selection.id : activeDiagram.ownerId ?? undefined) ??
+            null;
+          const elementId = createElement('Block', ownerId);
+          if (elementId) {
+            const result = ensureNodeInDiagram(activeDiagram, elementId, contextMenu.position);
+            updateDiagram(activeDiagram.id, result.diagram);
+            setSelectedNodeIds([result.nodeId]);
+            selectElement(elementId);
+          }
+        } else if (isIbdDiagram(activeDiagram) && activeDiagram.contextBlockId) {
+          const part = createPart(activeDiagram.contextBlockId);
+          if (part) {
+            addPartToIbdDiagram(activeDiagram, part.id, {
+              select: true,
+              position: contextMenu.position,
+              partElement: part,
+            });
+          }
+        }
+        setContextMenu(null);
+      };
+      return (
+        <div
+          className="context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="context-menu__group">
+            <button type="button" onClick={createHere} className="context-menu__item">
+              {isBddDiagram(activeDiagram) ? 'Create block here' : 'Create part here'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  })();
+
   return (
     <div className="app">
       <Toolbar
@@ -1282,6 +1595,7 @@ export default function App() {
         canConnect={canUseConnectMode}
         onToggleConnectMode={canUseConnectMode ? toggleConnectMode : undefined}
       />
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
       <input
         ref={importInputRef}
         type="file"
@@ -1296,6 +1610,7 @@ export default function App() {
         style={{ display: 'none' }}
         onChange={handleSysmlImportChange}
       />
+      {contextMenuNode}
       {banner ? (
         <div className={`banner banner--${banner.kind}`}>
           {banner.messages.map((message) => (
@@ -1322,6 +1637,7 @@ export default function App() {
               }
               activeDiagram={activeDiagram}
               disableActions={!payload}
+              onContextMenu={handleTreeContextMenu}
             />
           </Panel>
           <Panel title={payload?.manifest.name ?? 'Workspace overview'} subtitle={payload?.manifest.description}>
@@ -1354,6 +1670,8 @@ export default function App() {
                   onSelectNodes={setSelectedNodeIds}
                   connectMode={connectMode}
                   onPortSelect={handlePortSelect}
+                  onDropElement={handleDropElement}
+                  onCanvasContextMenu={handleCanvasContextMenu}
                   onChange={(diagram) => updateDiagram(activeDiagram.id, diagram)}
                 />
               </div>
@@ -1411,7 +1729,7 @@ export default function App() {
                 activeDiagram &&
                 isIbdDiagram(activeDiagram) &&
                 activeDiagram.contextBlockId
-                  ? () => createPart(activeDiagram.contextBlockId, selectedElement.id)
+                  ? () => createPart(activeDiagram.contextBlockId!, selectedElement.id)
                   : undefined
               }
               onCreateIbd={
@@ -1427,7 +1745,15 @@ export default function App() {
           <Panel title="Welcome" subtitle="Open or import a workspace to begin">
             <p className="lede">No workspace is currently loaded.</p>
             <div className="landing__actions">
-              <button className="button" type="button" onClick={createWorkspace} disabled={loadingWorkspaces}>
+              <button
+                className="button"
+                type="button"
+                onClick={loadExampleWorkspace}
+                disabled={loadingExample}
+              >
+                {loadingExample ? 'Loading example…' : 'Load example workspace'}
+              </button>
+              <button className="button button--ghost" type="button" onClick={createWorkspace} disabled={loadingWorkspaces}>
                 Create new workspace
               </button>
               <button
@@ -1447,7 +1773,10 @@ export default function App() {
                 {importingSysml ? 'Importing…' : 'Import SysML v2'}
               </button>
             </div>
-            <p className="hint">Accepts workspace bundles or SysML v2 JSON with model and diagram data.</p>
+            <p className="hint">
+              Load the curated example or bring your own bundle. Accepts workspace archives or SysML v2 JSON with model and
+              diagram data.
+            </p>
           </Panel>
           <Panel title="Available workspaces" subtitle={landingSubtitle}>
             {workspaces.length === 0 ? (
