@@ -9,7 +9,7 @@
   "model": {
     "elements": [
       {
-        "id": "pkg-1",
+        "id": "6db28f2f-cca1-4241-adfc-78cb8e26cd1b",
         "metaclass": "Package",
         "name": "Example Package",
         "ownerId": null,
@@ -20,10 +20,10 @@
         "updatedAt": "2024-01-01T00:00:00.000Z"
       },
       {
-        "id": "block-vehicle",
+        "id": "879a8abf-137b-4950-bb85-3a79444c0bd3",
         "metaclass": "Block",
         "name": "Vehicle",
-        "ownerId": "pkg-1",
+        "ownerId": "6db28f2f-cca1-4241-adfc-78cb8e26cd1b",
         "documentation": "A simple vehicle with an engine and wheel",
         "stereotypes": [],
         "tags": {},
@@ -31,10 +31,10 @@
         "updatedAt": "2024-01-01T00:00:00.000Z"
       },
       {
-        "id": "block-engine",
+        "id": "a162dbc0-b6b9-47b5-8dbf-08dfc8eb6447",
         "metaclass": "Block",
         "name": "Engine",
-        "ownerId": "pkg-1",
+        "ownerId": "6db28f2f-cca1-4241-adfc-78cb8e26cd1b",
         "documentation": "Power source",
         "stereotypes": [],
         "tags": {},
@@ -42,10 +42,10 @@
         "updatedAt": "2024-01-01T00:00:00.000Z"
       },
       {
-        "id": "block-wheel",
+        "id": "def25681-0cb1-490d-a946-c63f3729ca99",
         "metaclass": "Block",
         "name": "Wheel",
-        "ownerId": "pkg-1",
+        "ownerId": "6db28f2f-cca1-4241-adfc-78cb8e26cd1b",
         "documentation": "Rolling element",
         "stereotypes": [],
         "tags": {},
@@ -53,11 +53,11 @@
         "updatedAt": "2024-01-01T00:00:00.000Z"
       },
       {
-        "id": "part-engine",
+        "id": "196a9582-7d2b-4c90-8b99-78982629e1df",
         "metaclass": "Part",
         "name": "EnginePart",
-        "ownerId": "block-vehicle",
-        "typeId": "block-engine",
+        "ownerId": "879a8abf-137b-4950-bb85-3a79444c0bd3",
+        "typeId": "a162dbc0-b6b9-47b5-8dbf-08dfc8eb6447",
         "documentation": "Engine assembly",
         "stereotypes": [],
         "tags": {},
@@ -65,11 +65,11 @@
         "updatedAt": "2024-01-01T00:00:00.000Z"
       },
       {
-        "id": "part-wheel",
+        "id": "a35e53d5-9ff1-4325-88d3-a6c049ce6c90",
         "metaclass": "Part",
         "name": "WheelPart",
-        "ownerId": "block-vehicle",
-        "typeId": "block-wheel",
+        "ownerId": "879a8abf-137b-4950-bb85-3a79444c0bd3",
+        "typeId": "def25681-0cb1-490d-a946-c63f3729ca99",
         "documentation": "Front wheel",
         "stereotypes": [],
         "tags": {},
@@ -77,10 +77,10 @@
         "updatedAt": "2024-01-01T00:00:00.000Z"
       },
       {
-        "id": "port-frame",
+        "id": "60bb54d0-160a-4f3f-8b0c-69e384319aed",
         "metaclass": "Port",
         "name": "VehiclePort",
-        "ownerId": "block-vehicle",
+        "ownerId": "879a8abf-137b-4950-bb85-3a79444c0bd3",
         "documentation": "Vehicle interface",
         "stereotypes": [],
         "tags": {},
@@ -90,17 +90,17 @@
     ],
     "relationships": [
       {
-        "id": "rel-vehicle-engine",
+        "id": "a64fe8e8-3a2e-4e7e-b133-e53c51e1b31d",
         "type": "Association",
-        "sourceId": "block-vehicle",
-        "targetId": "block-engine",
+        "sourceId": "879a8abf-137b-4950-bb85-3a79444c0bd3",
+        "targetId": "a162dbc0-b6b9-47b5-8dbf-08dfc8eb6447",
         "properties": {}
       },
       {
-        "id": "rel-vehicle-wheel",
+        "id": "b88ae00a-01bf-4b48-828e-5a106b749ec5",
         "type": "Association",
-        "sourceId": "block-vehicle",
-        "targetId": "block-wheel",
+        "sourceId": "879a8abf-137b-4950-bb85-3a79444c0bd3",
+        "targetId": "def25681-0cb1-490d-a946-c63f3729ca99",
         "properties": {}
       }
     ]
@@ -108,15 +108,15 @@
   "diagrams": {
     "diagrams": [
       {
-        "id": "diag-bdd",
+        "id": "04ac00fb-dea3-4b94-b038-8038f926f467",
         "name": "System Overview",
         "kind": "BDD",
         "type": "BDD",
-        "ownerId": "pkg-1",
+        "ownerId": "6db28f2f-cca1-4241-adfc-78cb8e26cd1b",
         "nodes": [
           {
-            "id": "node-vehicle",
-            "elementId": "block-vehicle",
+            "id": "d2f8f56e-3dcc-45b2-9f9b-5c9451c9796f",
+            "elementId": "879a8abf-137b-4950-bb85-3a79444c0bd3",
             "kind": "Element",
             "x": 320,
             "y": 200,
@@ -126,8 +126,8 @@
             "style": { "highlight": false }
           },
           {
-            "id": "node-engine",
-            "elementId": "block-engine",
+            "id": "e230d08f-3f96-45eb-a253-821fc478cbdf",
+            "elementId": "a162dbc0-b6b9-47b5-8dbf-08dfc8eb6447",
             "kind": "Element",
             "x": 620,
             "y": 180,
@@ -137,8 +137,8 @@
             "style": { "highlight": false }
           },
           {
-            "id": "node-wheel",
-            "elementId": "block-wheel",
+            "id": "72daa3ea-6b50-438b-bca7-fd3f7000b45f",
+            "elementId": "def25681-0cb1-490d-a946-c63f3729ca99",
             "kind": "Element",
             "x": 620,
             "y": 320,
@@ -150,18 +150,18 @@
         ],
         "edges": [
           {
-            "id": "edge-vehicle-engine",
-            "relationshipId": "rel-vehicle-engine",
-            "sourceNodeId": "node-vehicle",
-            "targetNodeId": "node-engine",
+            "id": "67089ee7-e7a7-4851-aabe-31a8b55df331",
+            "relationshipId": "a64fe8e8-3a2e-4e7e-b133-e53c51e1b31d",
+            "sourceNodeId": "d2f8f56e-3dcc-45b2-9f9b-5c9451c9796f",
+            "targetNodeId": "e230d08f-3f96-45eb-a253-821fc478cbdf",
             "routingPoints": [],
             "label": "Association"
           },
           {
-            "id": "edge-vehicle-wheel",
-            "relationshipId": "rel-vehicle-wheel",
-            "sourceNodeId": "node-vehicle",
-            "targetNodeId": "node-wheel",
+            "id": "12fbb1c7-85eb-4973-b44a-04b3a437c6c0",
+            "relationshipId": "b88ae00a-01bf-4b48-828e-5a106b749ec5",
+            "sourceNodeId": "d2f8f56e-3dcc-45b2-9f9b-5c9451c9796f",
+            "targetNodeId": "72daa3ea-6b50-438b-bca7-fd3f7000b45f",
             "routingPoints": [],
             "label": "Association"
           }
@@ -169,16 +169,16 @@
         "viewSettings": { "gridEnabled": true, "snapEnabled": true, "zoom": 1, "panX": 0, "panY": 0 }
       },
       {
-        "id": "diag-ibd",
+        "id": "a44bdd2b-b855-4314-a01e-65c90b751f9e",
         "name": "Vehicle IBD",
         "kind": "IBD",
         "type": "IBD",
-        "contextBlockId": "block-vehicle",
-        "ownerId": "pkg-1",
+        "contextBlockId": "879a8abf-137b-4950-bb85-3a79444c0bd3",
+        "ownerId": "6db28f2f-cca1-4241-adfc-78cb8e26cd1b",
         "nodes": [
           {
-            "id": "node-part-engine",
-            "elementId": "part-engine",
+            "id": "c9432faa-e0f0-4f54-91f3-63abe64c5adc",
+            "elementId": "196a9582-7d2b-4c90-8b99-78982629e1df",
             "kind": "Part",
             "x": 320,
             "y": 220,
@@ -188,8 +188,8 @@
             "style": { "highlight": false }
           },
           {
-            "id": "node-part-wheel",
-            "elementId": "part-wheel",
+            "id": "9bdc1cfa-7851-4ec4-aac3-4d976e04650d",
+            "elementId": "a35e53d5-9ff1-4325-88d3-a6c049ce6c90",
             "kind": "Part",
             "x": 520,
             "y": 360,
@@ -199,8 +199,8 @@
             "style": { "highlight": false }
           },
           {
-            "id": "node-port-frame",
-            "elementId": "port-frame",
+            "id": "429859b8-7251-44b8-97bc-7fbc5c625f84",
+            "elementId": "60bb54d0-160a-4f3f-8b0c-69e384319aed",
             "kind": "Port",
             "x": 0,
             "y": 0,
