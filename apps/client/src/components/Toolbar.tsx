@@ -19,6 +19,9 @@ interface ToolbarProps {
   canRedo: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
+  connectMode: boolean;
+  canConnect: boolean;
+  onToggleConnectMode?: () => void;
 }
 
 export function Toolbar({
@@ -40,6 +43,9 @@ export function Toolbar({
   canRedo,
   onUndo,
   onRedo,
+  connectMode,
+  canConnect,
+  onToggleConnectMode,
 }: ToolbarProps) {
   return (
     <header className="toolbar">
@@ -56,6 +62,14 @@ export function Toolbar({
         </button>
         <button className="button button--ghost" onClick={onRedo} disabled={!onRedo || !canRedo} type="button">
           Redo
+        </button>
+        <button
+          className={`button button--ghost${connectMode ? ' button--active' : ''}`}
+          onClick={onToggleConnectMode}
+          disabled={!onToggleConnectMode || !canConnect}
+          type="button"
+        >
+          {connectMode ? 'Connecting…' : 'Connect ports'}
         </button>
         <label className="toolbar__label" htmlFor="workspace-select">
           Workspace

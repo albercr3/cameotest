@@ -12,6 +12,8 @@ interface DiagramCanvasProps {
   onSelectElement?: (elementId?: string) => void;
   onSelectRelationship?: (relationshipId?: string) => void;
   onSelectNodes?: (nodeIds: string[]) => void;
+  connectMode?: boolean;
+  onPortSelect?: (portId: string, nodeId: string) => void;
   onChange: (diagram: Diagram) => void;
 }
 
@@ -26,6 +28,8 @@ export function DiagramCanvas({
   onSelectElement,
   onSelectRelationship,
   onSelectNodes,
+  connectMode,
+  onPortSelect,
   onChange,
 }: DiagramCanvasProps) {
   const dragStart = useRef<
@@ -45,6 +49,8 @@ export function DiagramCanvas({
     const map = new Map(diagram.nodes.map((node) => [node.id, node]));
     return map;
   }, [diagram.nodes]);
+
+  const isIbd = (diagram.kind ?? diagram.type) === 'IBD';
 
   const view = diagram.viewSettings;
 
@@ -219,6 +225,187 @@ export function DiagramCanvas({
     return [sourcePoint, ...routing, targetPoint].map((pt) => `${pt.x},${pt.y}`).join(' ');
   };
 
+  if (isIbd) {
+    const frame = { x: 240, y: 140, w: 640, h: 420 };
+    const contextBlock = diagram.contextBlockId ? elements[diagram.contextBlockId] : undefined;
+    const portPositions = new Map<string, { x: number; y: number }>();
+    diagram.nodes.forEach((node) => {
+      const placement = node.placement ?? { side: 'N', offset: 0.5 };
+      const clampedOffset = Math.min(1, Math.max(0, placement.offset));
+      let x = frame.x;
+      let y = frame.y;
+      switch (placement.side) {
+        case 'N':
+          x = frame.x + frame.w * clampedOffset;
+          y = frame.y;
+          break;
+        case 'S':
+          x = frame.x + frame.w * clampedOffset;
+          y = frame.y + frame.h;
+          break;
+        case 'E':
+          x = frame.x + frame.w;
+          y = frame.y + frame.h * clampedOffset;
+          break;
+        case 'W':
+        default:
+          x = frame.x;
+          y = frame.y + frame.h * clampedOffset;
+          break;
+      }
+      portPositions.set(node.id, { x, y });
+    });
+
+    const pointsForConnector = (sourceId: string, targetId: string) => {
+      const source = portPositions.get(sourceId);
+      const target = portPositions.get(targetId);
+      if (!source || !target) return '';
+      return `${source.x},${source.y} ${target.x},${target.y}`;
+    };
+
+    const handlePortPointerDown = (event: React.PointerEvent, nodeId: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const node = nodesById.get(nodeId);
+      if (!node) return;
+      onSelectNodes?.([nodeId]);
+      onPortSelect?.(node.elementId, nodeId);
+    };
+
+    const handleIbdCanvasPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
+      if ((event.target as globalThis.Element | null)?.closest('.diagram-node')) return;
+      event.preventDefault();
+      onSelectNodes?.([]);
+      onSelectElement?.(undefined);
+      onSelectRelationship?.(undefined);
+      const isPan = event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey;
+      if (isPan) {
+        panStart.current = { x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY };
+        window.addEventListener('pointermove', handleCanvasPointerMove);
+        window.addEventListener('pointerup', handleCanvasPointerUp);
+      }
+    };
+
+    const frameSelected = selection?.kind === 'element' && selection.id === diagram.contextBlockId;
+
+    return (
+      <div className="diagram-shell">
+        <div className="diagram-controls">
+          <button type="button" className="button" onClick={() => toggleView('gridEnabled')}>
+            {view.gridEnabled ? 'Hide Grid' : 'Show Grid'}
+          </button>
+          <button type="button" className="button" onClick={() => toggleView('snapEnabled')}>
+            {view.snapEnabled ? 'Disable Snap' : 'Enable Snap'}
+          </button>
+          <div className="zoom-group">
+            <button type="button" className="button" onClick={() => zoomBy(0.9)}>
+              −
+            </button>
+            <span className="zoom-value">{Math.round(view.zoom * 100)}%</span>
+            <button type="button" className="button" onClick={() => zoomBy(1.1)}>
+              +
+            </button>
+          </div>
+          <div className="pan-group">
+            <button type="button" className="button" onClick={() => panBy(-40, 0)}>
+              ←
+            </button>
+            <button type="button" className="button" onClick={() => panBy(40, 0)}>
+              →
+            </button>
+            <button type="button" className="button" onClick={() => panBy(0, -40)}>
+              ↑
+            </button>
+            <button type="button" className="button" onClick={() => panBy(0, 40)}>
+              ↓
+            </button>
+          </div>
+          {connectMode ? <span className="pill">Connect mode: pick two ports</span> : null}
+        </div>
+        <div
+          className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}`}
+          style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
+          onWheel={handleWheel}
+        >
+          <svg
+            ref={svgRef}
+            width="100%"
+            height="100%"
+            viewBox="0 0 1200 800"
+            onPointerDown={handleIbdCanvasPointerDown}
+          >
+            <g transform={`translate(${view.panX} ${view.panY}) scale(${view.zoom})`}>
+              <rect
+                x={frame.x}
+                y={frame.y}
+                width={frame.w}
+                height={frame.h}
+                className={`ibd-frame${frameSelected ? ' diagram-node--selected' : ''}`}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  onSelectElement?.(diagram.contextBlockId);
+                  onSelectNodes?.([]);
+                }}
+              />
+              <text x={frame.x + 12} y={frame.y + 24} className="diagram-node__title">
+                {contextBlock?.name ?? 'Block'}
+              </text>
+              {diagram.edges.map((edge) => {
+                const points = pointsForConnector(edge.sourceNodeId, edge.targetNodeId);
+                const relationship = relationships[edge.relationshipId];
+                if (!points) return null;
+                const isSelected = selection?.kind === 'relationship' && selection.id === edge.relationshipId;
+                const isDangling = !relationship;
+                return (
+                  <polyline
+                    key={edge.id}
+                    className={`diagram-edge${isSelected ? ' diagram-edge--selected' : ''}${
+                      isDangling ? ' diagram-edge--dangling' : ''
+                    }`}
+                    points={points}
+                    fill="none"
+                    strokeWidth={2}
+                    markerEnd="url(#arrow)"
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      if (relationship && onSelectRelationship) {
+                        onSelectRelationship(relationship.id);
+                      }
+                    }}
+                  />
+                );
+              })}
+              {diagram.nodes.map((node) => {
+                const element = elements[node.elementId];
+                const position = portPositions.get(node.id);
+                if (!position) return null;
+                const isSelected =
+                  selectedNodeIds.includes(node.id) || (selection?.kind === 'element' && element?.id === selection.id);
+                return (
+                  <g
+                    key={node.id}
+                    className={`diagram-node diagram-node--port${isSelected ? ' diagram-node--selected' : ''}`}
+                    onPointerDown={(event) => handlePortPointerDown(event, node.id)}
+                  >
+                    <circle cx={position.x} cy={position.y} r={8} />
+                    <text x={position.x + 12} y={position.y + 4} className="diagram-node__title">
+                      {element?.name ?? 'Port'}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
+            <defs>
+              <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L9,3 z" fill="#4f46e5" />
+              </marker>
+            </defs>
+          </svg>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="diagram-shell">
       <div className="diagram-controls">
@@ -298,6 +485,7 @@ export function DiagramCanvas({
                 selection?.kind === 'relationship' ? relationships[selection.id] : undefined;
               const isRelated =
                 !!selectedRelationship &&
+                selectedRelationship.type !== 'Connector' &&
                 (selectedRelationship.sourceId === node.elementId ||
                   selectedRelationship.targetId === node.elementId);
               return (

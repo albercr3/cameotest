@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   Diagram,
+  DiagramKind,
   DiagramsFile,
   Element,
   ModelFile,
@@ -70,6 +71,18 @@ const relationshipTypes = relationshipTypeSchema.options;
 const HISTORY_LIMIT = 30;
 const AUTOSAVE_DELAY = 1500;
 
+const diagramKindOf = (diagram?: Diagram): DiagramKind =>
+  (diagram?.kind ?? diagram?.type ?? 'BDD') as DiagramKind;
+
+const normalizeDiagram = (diagram: Diagram): Diagram => {
+  const kind = diagramKindOf(diagram);
+  const type = (diagram.type ?? kind) as DiagramKind;
+  return { ...diagram, kind, type };
+};
+
+const isBddDiagram = (diagram?: Diagram) => diagramKindOf(diagram) === 'BDD';
+const isIbdDiagram = (diagram?: Diagram) => diagramKindOf(diagram) === 'IBD';
+
 export default function App() {
   const [workspaces, setWorkspaces] = useState<WorkspaceManifest[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
@@ -90,6 +103,8 @@ export default function App() {
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [redoStack, setRedoStack] = useState<HistoryEntry[]>([]);
+  const [connectMode, setConnectMode] = useState(false);
+  const [pendingConnectorPortId, setPendingConnectorPortId] = useState<string | null>(null);
   const addOffset = useRef(0);
   const pasteOffset = useRef(0);
   const clipboardNodesRef = useRef<Diagram['nodes']>([]);
@@ -162,7 +177,9 @@ export default function App() {
     postJson(`/api/workspaces/${activeId}/open`)
       .then(() => getJson<WorkspacePayload>('/api/workspaces/current/load'))
       .then((data) => {
-        setPayload(data);
+        const normalizedDiagrams = data.diagrams.diagrams.map(normalizeDiagram);
+        const normalizedPayload: WorkspacePayload = { ...data, diagrams: { diagrams: normalizedDiagrams } };
+        setPayload(normalizedPayload);
         setHistory([]);
         setRedoStack([]);
         setDirty(false);
@@ -170,9 +187,9 @@ export default function App() {
         setAutosaveError(null);
         const firstElement = data.model.elements[0]?.id;
         setSelection(firstElement ? { kind: 'element', id: firstElement } : undefined);
-        const firstDiagramNode = data.diagrams.diagrams[0]?.nodes[0];
+        const firstDiagramNode = normalizedDiagrams[0]?.nodes[0];
         setSelectedNodeIds(firstDiagramNode ? [firstDiagramNode.id] : []);
-        setActiveDiagramId(data.diagrams.diagrams[0]?.id);
+        setActiveDiagramId(normalizedDiagrams[0]?.id);
         setStatus('Ready');
       })
       .catch((error) => {
@@ -216,7 +233,8 @@ export default function App() {
 
   const activeDiagram: Diagram | undefined = useMemo(() => {
     if (!payload || !activeDiagramId) return undefined;
-    return payload.diagrams.diagrams.find((diagram) => diagram.id === activeDiagramId);
+    const found = payload.diagrams.diagrams.find((diagram) => diagram.id === activeDiagramId);
+    return found ? normalizeDiagram(found) : undefined;
   }, [activeDiagramId, payload]);
 
   useEffect(() => {
@@ -262,6 +280,11 @@ export default function App() {
   }, [activeDiagram]);
 
   useEffect(() => {
+    setConnectMode(false);
+    setPendingConnectorPortId(null);
+  }, [activeDiagramId]);
+
+  useEffect(() => {
     if (!activeDiagram) return;
     if (selection?.kind !== 'element') {
       setSelectedNodeIds([]);
@@ -298,13 +321,32 @@ export default function App() {
   const propertiesSubtitle =
     selectedElement?.name ??
     (selectedRelationship ? `${selectedRelationship.type} relationship` : 'Select an element to edit');
+  const selectedIsBlock = selectedElement?.metaclass === 'Block';
+  const selectedIsPort = selectedElement?.metaclass === 'Port';
+  const activeDiagramKind = diagramKindOf(activeDiagram);
+  const canUseConnectMode = !!(activeDiagram && isIbdDiagram(activeDiagram));
+  const canAddPortToIbd = !!(
+    selectedIsPort &&
+    activeDiagram &&
+    isIbdDiagram(activeDiagram) &&
+    selectedElement?.ownerId &&
+    activeDiagram.contextBlockId === selectedElement.ownerId
+  );
+  const canAddElementToDiagram = !!(
+    activeDiagram &&
+    ((isIbdDiagram(activeDiagram) && canAddPortToIbd) || isBddDiagram(activeDiagram))
+  );
 
   const relatedRelationships = useMemo(() => {
     if (!payload || !selectedElement) return [] as Relationship[];
-    return payload.model.relationships.filter(
-      (rel) => rel.sourceId === selectedElement.id || rel.targetId === selectedElement.id,
-    );
+    const target = new Set([selectedElement.id]);
+    return payload.model.relationships.filter((rel) => relationshipTouchesElements(rel, target));
   }, [payload, selectedElement]);
+
+  const relationshipCreationTypes = useMemo(
+    () => relationshipTypes.filter((type) => type !== 'Connector'),
+    [],
+  );
 
   const updateElement = (id: string, updates: Partial<Element>) => {
     applyChange((current) => {
@@ -321,7 +363,10 @@ export default function App() {
 
   const updateDiagram = (diagramId: string, next: Diagram) => {
     applyChange((current) => {
-      const diagrams = current.diagrams.diagrams.map((diagram) => (diagram.id === diagramId ? next : diagram));
+      const normalized = normalizeDiagram(next);
+      const diagrams = current.diagrams.diagrams.map((diagram) =>
+        diagram.id === diagramId ? normalized : normalizeDiagram(diagram),
+      );
       return {
         ...current,
         manifest: { ...current.manifest, updatedAt: new Date().toISOString() },
@@ -350,6 +395,13 @@ export default function App() {
       next = `${base}${suffix}`;
     }
     return next;
+  };
+
+  const relationshipTouchesElements = (rel: Relationship, ids: Set<string>) => {
+    if (rel.type === 'Connector') {
+      return ids.has(rel.sourcePortId) || ids.has(rel.targetPortId);
+    }
+    return ids.has(rel.sourceId) || ids.has(rel.targetId);
   };
 
   const dedupeWorkspaceName = useCallback(
@@ -507,6 +559,30 @@ export default function App() {
     selectElement(element.id);
   };
 
+  const createPort = (ownerId: string) => {
+    if (!payload) return;
+    const now = new Date().toISOString();
+    const name = dedupeName('Port', ownerId);
+    const element: Element = {
+      id: crypto.randomUUID(),
+      metaclass: 'Port',
+      name,
+      ownerId,
+      documentation: '',
+      stereotypes: [],
+      tags: {},
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    applyChange((current) => ({
+      ...current,
+      manifest: { ...current.manifest, updatedAt: now },
+      model: { ...current.model, elements: [...current.model.elements, element] },
+    }));
+    selectElement(element.id);
+  };
+
   const deleteElement = (id: string) => {
     if (!payload) return;
     const toDelete = new Set<string>();
@@ -521,9 +597,7 @@ export default function App() {
     const parentId = elementsById[id]?.ownerId ?? null;
     const remainingElements = payload.model.elements.filter((el) => !toDelete.has(el.id));
     const removedRelationshipIds = new Set(
-      payload.model.relationships
-        .filter((rel) => toDelete.has(rel.sourceId) || toDelete.has(rel.targetId))
-        .map((rel) => rel.id),
+      payload.model.relationships.filter((rel) => relationshipTouchesElements(rel, toDelete)).map((rel) => rel.id),
     );
     const remainingRelationships = payload.model.relationships.filter(
       (rel) => !removedRelationshipIds.has(rel.id),
@@ -538,7 +612,7 @@ export default function App() {
           remainingNodeIds.has(edge.targetNodeId) &&
           !removedRelationshipIds.has(edge.relationshipId),
       );
-      return { ...diagram, nodes: remainingNodes, edges: remainingEdges };
+      return normalizeDiagram({ ...diagram, nodes: remainingNodes, edges: remainingEdges });
     });
 
     applyChange((current) => ({
@@ -558,6 +632,9 @@ export default function App() {
   };
 
   const ensureNodeInDiagram = (diagram: Diagram, elementId: string) => {
+    if (!isBddDiagram(diagram)) {
+      return { diagram, nodeId: elementId };
+    }
     const existing = diagram.nodes.find((node) => node.elementId === elementId);
     if (existing) {
       return { diagram, nodeId: existing.id };
@@ -578,8 +655,54 @@ export default function App() {
     return { diagram: { ...diagram, nodes: [...diagram.nodes, node] }, nodeId: node.id };
   };
 
+  const addPortToIbdDiagram = (diagram: Diagram, portId: string, options?: { select?: boolean }) => {
+    if (!payload || !isIbdDiagram(diagram)) return;
+    const existing = diagram.nodes.find((node) => node.elementId === portId);
+    if (existing) {
+      if (options?.select !== false) {
+        selectElement(portId);
+        setSelectedNodeIds([existing.id]);
+      }
+      return existing.id;
+    }
+
+    const sides: Array<'N' | 'E' | 'S' | 'W'> = ['N', 'E', 'S', 'W'];
+    const counts = sides.map((side) => diagram.nodes.filter((node) => node.placement?.side === side).length);
+    const minCount = Math.min(...counts);
+    const sideIndex = Math.max(0, counts.indexOf(minCount));
+    const side = sides[sideIndex];
+    const countForSide = counts[sideIndex] ?? 0;
+    const offset = countForSide === 0 ? 0.25 : Math.min(0.9, (countForSide + 1) / (countForSide + 2));
+    const placement = { side, offset } as const;
+
+    const node = {
+      id: crypto.randomUUID(),
+      elementId: portId,
+      x: 0,
+      y: 0,
+      w: 32,
+      h: 24,
+      placement,
+      compartments: { collapsed: true, showPorts: false, showParts: false },
+      style: { highlight: false },
+    } as Diagram['nodes'][number];
+
+    const nextDiagram = { ...diagram, nodes: [...diagram.nodes, node] };
+    updateDiagram(diagram.id, nextDiagram);
+    if (options?.select !== false) {
+      selectElement(portId);
+      setSelectedNodeIds([node.id]);
+    }
+    return node.id;
+  };
+
   const addToDiagram = (elementId: string, options?: { select?: boolean }) => {
     if (!payload || !activeDiagram) return;
+    if (isIbdDiagram(activeDiagram)) {
+      const element = elementsById[elementId];
+      if (element?.metaclass !== 'Port' || element.ownerId !== activeDiagram.contextBlockId) return;
+      return addPortToIbdDiagram(activeDiagram, elementId, options);
+    }
     const result = ensureNodeInDiagram(activeDiagram, elementId);
     if (result.diagram !== activeDiagram) {
       updateDiagram(activeDiagram.id, result.diagram);
@@ -591,8 +714,46 @@ export default function App() {
     return result.nodeId;
   };
 
-  const createRelationship = (type: Relationship['type'], sourceId: string, targetId: string) => {
+  const findIbdForBlock = (blockId: string) =>
+    payload?.diagrams.diagrams.find(
+      (diagram) => diagramKindOf(diagram) === 'IBD' && diagram.contextBlockId === blockId,
+    );
+
+  const createIbdDiagramForBlock = (block: Element) => {
     if (!payload) return;
+    const existing = findIbdForBlock(block.id);
+    if (existing) {
+      setActiveDiagramId(existing.id);
+      return existing.id;
+    }
+    const now = new Date().toISOString();
+    const baseName = `${block.name} IBD`;
+    const name = dedupeName(baseName, block.ownerId ?? null);
+    const diagram = normalizeDiagram({
+      id: crypto.randomUUID(),
+      name,
+      kind: 'IBD',
+      type: 'IBD',
+      contextBlockId: block.id,
+      ownerId: block.ownerId,
+      nodes: [],
+      edges: [],
+      viewSettings: { gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 },
+    } as Diagram);
+
+    applyChange((current) => ({
+      ...current,
+      manifest: { ...current.manifest, updatedAt: now },
+      diagrams: { diagrams: [...current.diagrams.diagrams.map(normalizeDiagram), diagram] },
+    }));
+    setActiveDiagramId(diagram.id);
+    setSelectedNodeIds([]);
+    selectElement(block.id);
+    return diagram.id;
+  };
+
+  const createRelationship = (type: Relationship['type'], sourceId: string, targetId: string) => {
+    if (!payload || type === 'Connector') return;
     const now = new Date().toISOString();
     const relationship: Relationship = {
       id: crypto.randomUUID(),
@@ -604,14 +765,16 @@ export default function App() {
 
     applyChange((current) => {
       const diagrams = current.diagrams.diagrams.map((diagram) => {
-        if (!activeDiagramId || diagram.id !== activeDiagramId) return diagram;
+        const normalizedDiagram = normalizeDiagram(diagram);
+        if (!activeDiagramId || normalizedDiagram.id !== activeDiagramId || !isBddDiagram(normalizedDiagram))
+          return normalizedDiagram;
         let nextDiagram = diagram;
         const sourceResult = ensureNodeInDiagram(nextDiagram, sourceId);
         nextDiagram = sourceResult.diagram;
         const targetResult = ensureNodeInDiagram(nextDiagram, targetId);
         nextDiagram = targetResult.diagram;
         const hasEdge = nextDiagram.edges.some((edge) => edge.relationshipId === relationship.id);
-        if (hasEdge) return nextDiagram;
+        if (hasEdge) return normalizeDiagram(nextDiagram);
         const edge = {
           id: crypto.randomUUID(),
           relationshipId: relationship.id,
@@ -620,7 +783,7 @@ export default function App() {
           routingPoints: [],
           label: type,
         } as Diagram['edges'][number];
-        return { ...nextDiagram, edges: [...nextDiagram.edges, edge] };
+        return normalizeDiagram({ ...nextDiagram, edges: [...nextDiagram.edges, edge] });
       });
 
       return {
@@ -634,15 +797,87 @@ export default function App() {
     selectRelationship(relationship.id);
   };
 
+  const createConnector = (sourcePortId: string, targetPortId: string, diagram?: Diagram) => {
+    if (!payload || !diagram || !isIbdDiagram(diagram)) return;
+    const now = new Date().toISOString();
+    const relationship: Relationship = {
+      id: crypto.randomUUID(),
+      type: 'Connector',
+      sourcePortId,
+      targetPortId,
+    };
+
+    const addConnector = (current: WorkspacePayload): WorkspacePayload => {
+      const diagrams = current.diagrams.diagrams.map((existing) => {
+        const normalizedDiagram = normalizeDiagram(existing);
+        if (normalizedDiagram.id !== diagram.id || !isIbdDiagram(normalizedDiagram)) return normalizedDiagram;
+
+        const sourceNode = normalizedDiagram.nodes.find((node) => node.elementId === sourcePortId);
+        const targetNode = normalizedDiagram.nodes.find((node) => node.elementId === targetPortId);
+        if (!sourceNode || !targetNode) return normalizedDiagram;
+        const hasEdge = normalizedDiagram.edges.some((edge) => edge.relationshipId === relationship.id);
+        if (hasEdge) return normalizedDiagram;
+        const edge = {
+          id: crypto.randomUUID(),
+          relationshipId: relationship.id,
+          sourceNodeId: sourceNode.id,
+          targetNodeId: targetNode.id,
+          routingPoints: [],
+          label: 'Connector',
+        } as Diagram['edges'][number];
+        return normalizeDiagram({ ...normalizedDiagram, edges: [...normalizedDiagram.edges, edge] });
+      });
+      const existingRelationships = current.model.relationships as Relationship[];
+      const relationships = [...existingRelationships, relationship];
+
+      return {
+        ...current,
+        manifest: { ...current.manifest, updatedAt: now },
+        model: { ...current.model, relationships } as ModelFile,
+        diagrams: { diagrams } as DiagramsFile,
+      } as WorkspacePayload;
+    };
+
+    applyChange(addConnector);
+
+    selectRelationship(relationship.id);
+    setPendingConnectorPortId(null);
+  };
+
+  const handlePortSelect = (portId: string, nodeId: string) => {
+    selectElement(portId);
+    setSelectedNodeIds([nodeId]);
+    if (connectMode && activeDiagram && isIbdDiagram(activeDiagram)) {
+      if (pendingConnectorPortId && pendingConnectorPortId !== portId) {
+        createConnector(pendingConnectorPortId, portId, activeDiagram);
+        setConnectMode(false);
+      } else {
+        setPendingConnectorPortId(portId);
+      }
+    } else {
+      setPendingConnectorPortId(null);
+    }
+  };
+
+  const toggleConnectMode = () => {
+    setConnectMode((current) => {
+      const next = !current;
+      if (!next) {
+        setPendingConnectorPortId(null);
+      }
+      return next;
+    });
+  };
+
   const updateRelationship = (id: string, updates: Partial<Relationship>) => {
-    applyChange((current) => {
+    applyChange((current: WorkspacePayload): WorkspacePayload => {
       const relationships = current.model.relationships.map((rel) =>
-        rel.id === id ? { ...rel, ...updates } : rel,
-      );
+        rel.id === id ? ({ ...rel, ...updates } as Relationship) : rel,
+      ) as Relationship[];
       return {
         ...current,
         manifest: { ...current.manifest, updatedAt: new Date().toISOString() },
-        model: { ...current.model, relationships },
+        model: { ...current.model, relationships } as ModelFile,
       };
     });
   };
@@ -711,14 +946,14 @@ export default function App() {
   };
 
   const copySelectedNodes = () => {
-    if (!activeDiagram || selectedNodeIds.length === 0) return;
+    if (!activeDiagram || !isBddDiagram(activeDiagram) || selectedNodeIds.length === 0) return;
     clipboardNodesRef.current = activeDiagram.nodes
       .filter((node) => selectedNodeIds.includes(node.id))
       .map((node) => ({ ...node }));
   };
 
   const pasteNodes = () => {
-    if (!payload || !activeDiagram) return;
+    if (!payload || !activeDiagram || !isBddDiagram(activeDiagram)) return;
     if (clipboardNodesRef.current.length === 0) return;
     const offset = 40 + (pasteOffset.current % 4) * 12;
     pasteOffset.current += 1;
@@ -952,6 +1187,9 @@ export default function App() {
         canRedo={canRedo}
         onUndo={canUndo ? undo : undefined}
         onRedo={canRedo ? redo : undefined}
+        connectMode={connectMode}
+        canConnect={canUseConnectMode}
+        onToggleConnectMode={canUseConnectMode ? toggleConnectMode : undefined}
       />
       <input
         ref={importInputRef}
@@ -986,7 +1224,11 @@ export default function App() {
               onCreatePackage={() => createElement('Package')}
               onCreateBlock={() => createElement('Block')}
               onDelete={selectedElementId ? handleDelete : undefined}
-              onAddToDiagram={selectedElementId ? () => addToDiagram(selectedElementId) : undefined}
+              onAddToDiagram={
+                selectedElementId && canAddElementToDiagram
+                  ? () => addToDiagram(selectedElementId)
+                  : undefined
+              }
               activeDiagram={activeDiagram}
               disableActions={!payload}
             />
@@ -1005,7 +1247,7 @@ export default function App() {
                     activeId={activeDiagramId}
                     onSelect={setActiveDiagramId}
                   />
-                  <span className="diagram-meta">Type: {activeDiagram.type}</span>
+                  <span className="diagram-meta">Type: {activeDiagramKind}</span>
                   {selectedNodeIds.length > 0 ? (
                     <span className="diagram-meta diagram-meta--count">{selectedNodeIds.length} selected</span>
                   ) : null}
@@ -1019,6 +1261,8 @@ export default function App() {
                   onSelectElement={selectElement}
                   onSelectRelationship={selectRelationship}
                   onSelectNodes={setSelectedNodeIds}
+                  connectMode={connectMode}
+                  onPortSelect={handlePortSelect}
                   onChange={(diagram) => updateDiagram(activeDiagram.id, diagram)}
                 />
               </div>
@@ -1052,6 +1296,7 @@ export default function App() {
               relatedRelationships={relatedRelationships}
               metaclasses={metaclasses}
               relationshipTypes={relationshipTypes}
+              relationshipCreationTypes={relationshipCreationTypes}
               onSelect={setSelection}
               onElementChange={(updates) => selectedElementId && updateElement(selectedElementId, updates)}
               onRelationshipChange={(updates) =>
@@ -1064,7 +1309,15 @@ export default function App() {
               }
               onDeleteRelationship={handleDeleteRelationship}
               onAddToDiagram={
-                selectedElementId && activeDiagram ? () => addToDiagram(selectedElementId) : undefined
+                selectedElementId && canAddElementToDiagram
+                  ? () => addToDiagram(selectedElementId)
+                  : undefined
+              }
+              onAddPort={selectedIsBlock && selectedElement ? () => createPort(selectedElement.id) : undefined}
+              onCreateIbd={
+                selectedIsBlock && selectedElement
+                  ? () => createIbdDiagramForBlock(selectedElement)
+                  : undefined
               }
             />
           </Panel>

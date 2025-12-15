@@ -22,7 +22,7 @@ export function DiagramTabs({ diagrams, activeId, onSelect }: DiagramTabsProps) 
           onClick={() => onSelect(diagram.id)}
         >
           <div className="diagram-tab__name">{diagram.name}</div>
-          <div className="diagram-tab__type">{diagram.type}</div>
+          <div className="diagram-tab__type">{diagram.kind ?? diagram.type}</div>
         </button>
       ))}
     </div>

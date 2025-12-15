@@ -3,6 +3,9 @@ import { z } from 'zod';
 export const metaclassSchema = z.enum(['Package', 'Block', 'Part', 'Port', 'Requirement']);
 export type Metaclass = z.infer<typeof metaclassSchema>;
 
+export const diagramKindSchema = z.enum(['BDD', 'IBD']);
+export type DiagramKind = z.infer<typeof diagramKindSchema>;
+
 export const elementSchema = z
   .object({
     id: z.string().uuid(),
@@ -18,18 +21,33 @@ export const elementSchema = z
   .passthrough();
 export type Element = z.infer<typeof elementSchema>;
 
-export const relationshipTypeSchema = z.enum(['Generalization', 'Association']);
+export const relationshipTypeSchema = z.enum(['Generalization', 'Association', 'Connector']);
 export type RelationshipType = z.infer<typeof relationshipTypeSchema>;
 
-export const relationshipSchema = z
+const baseRelationshipSchema = z
   .object({
     id: z.string().uuid(),
     type: relationshipTypeSchema,
-    sourceId: z.string().uuid(),
-    targetId: z.string().uuid(),
-    properties: z.record(z.any()).default({}),
   })
   .passthrough();
+
+export const connectorRelationshipSchema = baseRelationshipSchema.extend({
+  type: z.literal('Connector'),
+  sourcePortId: z.string().uuid(),
+  targetPortId: z.string().uuid(),
+});
+
+export const associationRelationshipSchema = baseRelationshipSchema.extend({
+  type: z.enum(['Generalization', 'Association']),
+  sourceId: z.string().uuid(),
+  targetId: z.string().uuid(),
+  properties: z.record(z.any()).default({}),
+});
+
+export const relationshipSchema = z.discriminatedUnion('type', [
+  associationRelationshipSchema,
+  connectorRelationshipSchema,
+]);
 export type Relationship = z.infer<typeof relationshipSchema>;
 
 export const modelFileSchema = z
@@ -40,6 +58,14 @@ export const modelFileSchema = z
   .passthrough();
 export type ModelFile = z.infer<typeof modelFileSchema>;
 
+export const portPlacementSchema = z
+  .object({
+    side: z.enum(['N', 'E', 'S', 'W']),
+    offset: z.number().min(0).max(1),
+  })
+  .passthrough();
+export type PortPlacement = z.infer<typeof portPlacementSchema>;
+
 export const diagramNodeSchema = z
   .object({
     id: z.string().uuid(),
@@ -48,13 +74,14 @@ export const diagramNodeSchema = z
     y: z.number(),
     w: z.number().positive(),
     h: z.number().positive(),
+    placement: portPlacementSchema.optional(),
     compartments: z
       .object({
         collapsed: z.boolean().default(false),
         showPorts: z.boolean().default(true),
-      showParts: z.boolean().default(true),
-    })
-    .default({ collapsed: false, showPorts: true, showParts: true }),
+        showParts: z.boolean().default(true),
+      })
+      .default({ collapsed: false, showPorts: true, showParts: true }),
     style: z
       .object({
         highlight: z.boolean().default(false),
@@ -80,19 +107,21 @@ export const diagramSchema = z
   .object({
     id: z.string().uuid(),
     name: z.string(),
-    type: z.enum(['BDD', 'IBD']).default('BDD'),
+    type: diagramKindSchema.default('BDD'),
+    kind: diagramKindSchema.default('BDD'),
+    contextBlockId: z.string().uuid().optional(),
     ownerId: z.string().uuid().nullable(),
     nodes: z.array(diagramNodeSchema),
-  edges: z.array(diagramEdgeSchema),
-  viewSettings: z
-    .object({
-      gridEnabled: z.boolean().default(true),
-      snapEnabled: z.boolean().default(true),
-      zoom: z.number().default(1),
-      panX: z.number().default(0),
-      panY: z.number().default(0),
-    })
-    .default({ gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 }),
+    edges: z.array(diagramEdgeSchema),
+    viewSettings: z
+      .object({
+        gridEnabled: z.boolean().default(true),
+        snapEnabled: z.boolean().default(true),
+        zoom: z.number().default(1),
+        panX: z.number().default(0),
+        panY: z.number().default(0),
+      })
+      .default({ gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 }),
   })
   .passthrough();
 export type Diagram = z.infer<typeof diagramSchema>;
