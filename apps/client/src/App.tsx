@@ -70,6 +70,7 @@ const metaclasses = metaclassSchema.options;
 const relationshipTypes = relationshipTypeSchema.options;
 const HISTORY_LIMIT = 30;
 const AUTOSAVE_DELAY = 1500;
+const IBD_FRAME = { x: 240, y: 140, w: 640, h: 420 } as const;
 
 const diagramKindOf = (diagram?: Diagram): DiagramKind =>
   (diagram?.kind ?? diagram?.type ?? 'BDD') as DiagramKind;
@@ -77,7 +78,12 @@ const diagramKindOf = (diagram?: Diagram): DiagramKind =>
 const normalizeDiagram = (diagram: Diagram): Diagram => {
   const kind = diagramKindOf(diagram);
   const type = (diagram.type ?? kind) as DiagramKind;
-  return { ...diagram, kind, type };
+  const nodes = diagram.nodes.map((node) => {
+    const inferredKind =
+      node.kind ?? (kind === 'IBD' ? (node.placement ? 'Port' : 'Part') : 'Element');
+    return { ...node, kind: inferredKind } as Diagram['nodes'][number];
+  });
+  return { ...diagram, kind, type, nodes };
 };
 
 const isBddDiagram = (diagram?: Diagram) => diagramKindOf(diagram) === 'BDD';
@@ -106,6 +112,7 @@ export default function App() {
   const [connectMode, setConnectMode] = useState(false);
   const [pendingConnectorPortId, setPendingConnectorPortId] = useState<string | null>(null);
   const addOffset = useRef(0);
+  const ibdPartOffset = useRef(0);
   const pasteOffset = useRef(0);
   const clipboardNodesRef = useRef<Diagram['nodes']>([]);
   const importInputRef = useRef<HTMLInputElement | null>(null);
@@ -323,6 +330,7 @@ export default function App() {
     (selectedRelationship ? `${selectedRelationship.type} relationship` : 'Select an element to edit');
   const selectedIsBlock = selectedElement?.metaclass === 'Block';
   const selectedIsPort = selectedElement?.metaclass === 'Port';
+  const selectedIsPart = selectedElement?.metaclass === 'Part';
   const activeDiagramKind = diagramKindOf(activeDiagram);
   const canUseConnectMode = !!(activeDiagram && isIbdDiagram(activeDiagram));
   const canAddPortToIbd = !!(
@@ -332,9 +340,16 @@ export default function App() {
     selectedElement?.ownerId &&
     activeDiagram.contextBlockId === selectedElement.ownerId
   );
+  const canAddPartToIbd = !!(
+    selectedIsPart &&
+    activeDiagram &&
+    isIbdDiagram(activeDiagram) &&
+    selectedElement?.ownerId &&
+    activeDiagram.contextBlockId === selectedElement.ownerId
+  );
   const canAddElementToDiagram = !!(
     activeDiagram &&
-    ((isIbdDiagram(activeDiagram) && canAddPortToIbd) || isBddDiagram(activeDiagram))
+    ((isIbdDiagram(activeDiagram) && (canAddPortToIbd || canAddPartToIbd)) || isBddDiagram(activeDiagram))
   );
 
   const relatedRelationships = useMemo(() => {
@@ -583,6 +598,37 @@ export default function App() {
     selectElement(element.id);
   };
 
+  const createPart = (ownerBlockId: string, typeBlockId?: string) => {
+    if (!payload) return;
+    const owner = elementsById[ownerBlockId];
+    if (!owner || owner.metaclass !== 'Block') return;
+    const now = new Date().toISOString();
+    const type = typeBlockId ? elementsById[typeBlockId] : owner;
+    const safeTypeId = type?.metaclass === 'Block' ? type.id : ownerBlockId;
+    const baseName = type?.metaclass === 'Block' ? `${type.name}Part` : 'Part';
+    const name = dedupeName(baseName, ownerBlockId);
+    const element: Element = {
+      id: crypto.randomUUID(),
+      metaclass: 'Part',
+      name,
+      ownerId: ownerBlockId,
+      typeId: safeTypeId,
+      documentation: '',
+      stereotypes: [],
+      tags: {},
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    applyChange((current) => ({
+      ...current,
+      manifest: { ...current.manifest, updatedAt: now },
+      model: { ...current.model, elements: [...current.model.elements, element] },
+    }));
+    selectElement(element.id);
+    return element.id;
+  };
+
   const deleteElement = (id: string) => {
     if (!payload) return;
     const toDelete = new Set<string>();
@@ -645,6 +691,7 @@ export default function App() {
     const node = {
       id: crypto.randomUUID(),
       elementId,
+      kind: 'Element',
       x: view.panX + 400 + offset,
       y: view.panY + 240 + offset,
       w: 180,
@@ -678,6 +725,7 @@ export default function App() {
     const node = {
       id: crypto.randomUUID(),
       elementId: portId,
+      kind: 'Port',
       x: 0,
       y: 0,
       w: 32,
@@ -696,12 +744,55 @@ export default function App() {
     return node.id;
   };
 
+  const addPartToIbdDiagram = (diagram: Diagram, partId: string, options?: { select?: boolean }) => {
+    if (!payload || !isIbdDiagram(diagram)) return;
+    const part = elementsById[partId];
+    if (!part || part.metaclass !== 'Part' || part.ownerId !== diagram.contextBlockId) return;
+
+    const existing = diagram.nodes.find((node) => node.elementId === partId);
+    if (existing) {
+      if (options?.select !== false) {
+        selectElement(partId);
+        setSelectedNodeIds([existing.id]);
+      }
+      return existing.id;
+    }
+
+    const offset = 32 + (ibdPartOffset.current % 5) * 18;
+    ibdPartOffset.current += 1;
+    const node = {
+      id: crypto.randomUUID(),
+      elementId: partId,
+      kind: 'Part',
+      x: IBD_FRAME.x + IBD_FRAME.w / 2 - 90 + offset,
+      y: IBD_FRAME.y + IBD_FRAME.h / 2 - 50 + offset,
+      w: 180,
+      h: 100,
+      compartments: { collapsed: false, showParts: true, showPorts: true },
+      style: { highlight: false },
+    } as Diagram['nodes'][number];
+
+    const nextDiagram = { ...diagram, nodes: [...diagram.nodes, node] };
+    updateDiagram(diagram.id, nextDiagram);
+    if (options?.select !== false) {
+      selectElement(partId);
+      setSelectedNodeIds([node.id]);
+    }
+    return node.id;
+  };
+
   const addToDiagram = (elementId: string, options?: { select?: boolean }) => {
     if (!payload || !activeDiagram) return;
     if (isIbdDiagram(activeDiagram)) {
       const element = elementsById[elementId];
-      if (element?.metaclass !== 'Port' || element.ownerId !== activeDiagram.contextBlockId) return;
-      return addPortToIbdDiagram(activeDiagram, elementId, options);
+      if (!element || element.ownerId !== activeDiagram.contextBlockId) return;
+      if (element.metaclass === 'Port') {
+        return addPortToIbdDiagram(activeDiagram, elementId, options);
+      }
+      if (element.metaclass === 'Part') {
+        return addPartToIbdDiagram(activeDiagram, elementId, options);
+      }
+      return;
     }
     const result = ensureNodeInDiagram(activeDiagram, elementId);
     if (result.diagram !== activeDiagram) {
@@ -1314,6 +1405,15 @@ export default function App() {
                   : undefined
               }
               onAddPort={selectedIsBlock && selectedElement ? () => createPort(selectedElement.id) : undefined}
+              onCreatePart={
+                selectedIsBlock &&
+                selectedElement &&
+                activeDiagram &&
+                isIbdDiagram(activeDiagram) &&
+                activeDiagram.contextBlockId
+                  ? () => createPart(activeDiagram.contextBlockId, selectedElement.id)
+                  : undefined
+              }
               onCreateIbd={
                 selectedIsBlock && selectedElement
                   ? () => createIbdDiagramForBlock(selectedElement)

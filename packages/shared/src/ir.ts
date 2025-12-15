@@ -12,6 +12,7 @@ export const elementSchema = z
     metaclass: metaclassSchema,
     name: z.string().min(1),
     ownerId: z.string().uuid().nullable(),
+    typeId: z.string().uuid().optional(),
     documentation: z.string().default(''),
     stereotypes: z.array(z.string()).default([]),
     tags: z.record(z.string()).default({}),
@@ -70,6 +71,7 @@ export const diagramNodeSchema = z
   .object({
     id: z.string().uuid(),
     elementId: z.string().uuid(),
+    kind: z.enum(['Element', 'Port', 'Part']).default('Element'),
     x: z.number(),
     y: z.number(),
     w: z.number().positive(),
