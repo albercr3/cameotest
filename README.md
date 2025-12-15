@@ -48,3 +48,12 @@ Each workspace is a folder containing three JSON files:
 - `diagrams.json`: diagram view state (nodes, edges, settings).
 
 The server exposes REST endpoints under `/api/workspaces` to list, open, load, save, import, and duplicate workspaces.
+
+## Item flow labels on IBD connectors
+
+- Connectors on internal block diagrams support an optional **itemFlowLabel** field to annotate the payload flowing along the
+  connection.
+- Select a connector in the canvas (or via the properties list), then edit the **Item flow** input in the Properties panel;
+  leaving the field empty clears the label.
+- Labels render at the connector midpoint with a small backdrop for readability and persist through autosave, workspace
+  export, and SysML v2 JSON export/import flows.

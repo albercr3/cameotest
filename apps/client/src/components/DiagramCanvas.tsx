@@ -19,6 +19,9 @@ interface DiagramCanvasProps {
   onCanvasContextMenu?: (
     payload: { clientX: number; clientY: number; position: { x: number; y: number } },
   ) => void;
+  onPartContextMenu?: (
+    payload: { elementId: string; clientX: number; clientY: number; position: { x: number; y: number } },
+  ) => void;
   onChange: (diagram: Diagram) => void;
 }
 
@@ -38,6 +41,7 @@ export function DiagramCanvas({
   onPortSelect,
   onDropElement,
   onCanvasContextMenu,
+  onPartContextMenu,
   onChange,
 }: DiagramCanvasProps) {
   const dragStart = useRef<
@@ -290,41 +294,93 @@ export function DiagramCanvas({
   if (isIbd) {
     const frame = IBD_FRAME;
     const contextBlock = diagram.contextBlockId ? elements[diagram.contextBlockId] : undefined;
-    const portPositions = new Map<string, { x: number; y: number }>();
+    const findPartNode = (partId: string) =>
+      diagram.nodes.find((node) => {
+        const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
+        return nodeKind === 'Part' && node.elementId === partId;
+      });
+    const portPositions = new Map<string, { x: number; y: number; ownerKind: 'block' | 'part' }>();
     diagram.nodes.forEach((node) => {
       const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
       if (nodeKind !== 'Port') return;
+      const element = elements[node.elementId];
       const placement = node.placement ?? { side: 'N', offset: 0.5 };
       const clampedOffset = Math.min(1, Math.max(0, placement.offset));
-      let x = frame.x;
-      let y = frame.y;
+      const owner = element?.ownerId ? elements[element.ownerId] : undefined;
+      let rect: { x: number; y: number; w: number; h: number } | null = null;
+      let ownerKind: 'block' | 'part' = 'block';
+      if (owner?.metaclass === 'Block' && owner.id === diagram.contextBlockId) {
+        rect = frame;
+        ownerKind = 'block';
+      } else if (owner?.metaclass === 'Part') {
+        const partNode = findPartNode(owner.id);
+        if (partNode) {
+          rect = { x: partNode.x, y: partNode.y, w: partNode.w, h: partNode.h };
+          ownerKind = 'part';
+        }
+      }
+      if (!rect) return;
+      let x = rect.x;
+      let y = rect.y;
       switch (placement.side) {
         case 'N':
-          x = frame.x + frame.w * clampedOffset;
-          y = frame.y;
+          x = rect.x + rect.w * clampedOffset;
+          y = rect.y;
           break;
         case 'S':
-          x = frame.x + frame.w * clampedOffset;
-          y = frame.y + frame.h;
+          x = rect.x + rect.w * clampedOffset;
+          y = rect.y + rect.h;
           break;
         case 'E':
-          x = frame.x + frame.w;
-          y = frame.y + frame.h * clampedOffset;
+          x = rect.x + rect.w;
+          y = rect.y + rect.h * clampedOffset;
           break;
         case 'W':
         default:
-          x = frame.x;
-          y = frame.y + frame.h * clampedOffset;
+          x = rect.x;
+          y = rect.y + rect.h * clampedOffset;
           break;
       }
-      portPositions.set(node.id, { x, y });
+      portPositions.set(node.id, { x, y, ownerKind });
     });
 
-    const pointsForConnector = (sourceId: string, targetId: string) => {
-      const source = portPositions.get(sourceId);
-      const target = portPositions.get(targetId);
-      if (!source || !target) return '';
-      return `${source.x},${source.y} ${target.x},${target.y}`;
+    const midpointOfPolyline = (points: { x: number; y: number }[]) => {
+      if (points.length < 2) return null;
+      const segments = [] as { start: { x: number; y: number }; end: { x: number; y: number }; length: number }[];
+      let totalLength = 0;
+      for (let i = 0; i < points.length - 1; i += 1) {
+        const start = points[i];
+        const end = points[i + 1];
+        const length = Math.hypot(end.x - start.x, end.y - start.y);
+        totalLength += length;
+        segments.push({ start, end, length });
+      }
+      if (totalLength === 0) return points[0];
+      const halfway = totalLength / 2;
+      let traversed = 0;
+      for (const segment of segments) {
+        if (traversed + segment.length >= halfway) {
+          const remainder = halfway - traversed;
+          const ratio = segment.length === 0 ? 0 : remainder / segment.length;
+          return {
+            x: segment.start.x + (segment.end.x - segment.start.x) * ratio,
+            y: segment.start.y + (segment.end.y - segment.start.y) * ratio,
+          };
+        }
+        traversed += segment.length;
+      }
+      return points[points.length - 1];
+    };
+
+    const connectorGeometry = (edge: Diagram['edges'][number]) => {
+      const source = portPositions.get(edge.sourceNodeId);
+      const target = portPositions.get(edge.targetNodeId);
+      if (!source || !target) return null;
+      const routedPoints = edge.routingPoints?.map(({ x, y }) => ({ x, y })) ?? [];
+      const points = [{ x: source.x, y: source.y }, ...routedPoints, { x: target.x, y: target.y }];
+      const pointString = points.map((point) => `${point.x},${point.y}`).join(' ');
+      const midpoint = midpointOfPolyline(points);
+      return { pointString, midpoint } as const;
     };
 
     const handlePortPointerDown = (event: React.PointerEvent, nodeId: string) => {
@@ -416,28 +472,53 @@ export function DiagramCanvas({
                 {contextBlock?.name ?? 'Block'}
               </text>
               {diagram.edges.map((edge) => {
-                const points = pointsForConnector(edge.sourceNodeId, edge.targetNodeId);
                 const relationship = relationships[edge.relationshipId];
-                if (!points) return null;
+                const label =
+                  relationship?.type === 'Connector'
+                    ? relationship.itemFlowLabel?.trim() || undefined
+                    : undefined;
+                const geometry = connectorGeometry(edge);
+                if (!geometry) return null;
                 const isSelected = selection?.kind === 'relationship' && selection.id === edge.relationshipId;
                 const isDangling = !relationship;
+                const labelWidth = label ? Math.max(24, label.length * 7 + 8) : 0;
+                const labelHeight = label ? 18 : 0;
                 return (
-                  <polyline
-                    key={edge.id}
-                    className={`diagram-edge${isSelected ? ' diagram-edge--selected' : ''}${
-                      isDangling ? ' diagram-edge--dangling' : ''
-                    }`}
-                    points={points}
-                    fill="none"
-                    strokeWidth={2}
-                    markerEnd="url(#arrow)"
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                      if (relationship && onSelectRelationship) {
-                        onSelectRelationship(relationship.id);
-                      }
-                    }}
-                  />
+                  <g key={edge.id}>
+                    <polyline
+                      className={`diagram-edge${isSelected ? ' diagram-edge--selected' : ''}${
+                        isDangling ? ' diagram-edge--dangling' : ''
+                      }`}
+                      points={geometry.pointString}
+                      fill="none"
+                      strokeWidth={2}
+                      markerEnd="url(#arrow)"
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        if (relationship && onSelectRelationship) {
+                          onSelectRelationship(relationship.id);
+                        }
+                      }}
+                    />
+                    {label && geometry.midpoint ? (
+                      <g
+                        className="diagram-edge__label"
+                        transform={`translate(${geometry.midpoint.x} ${geometry.midpoint.y})`}
+                      >
+                        <rect
+                          x={-labelWidth / 2}
+                          y={-labelHeight / 2}
+                          width={labelWidth}
+                          height={labelHeight}
+                          rx={4}
+                          ry={4}
+                        />
+                        <text x={0} y={0} textAnchor="middle" dominantBaseline="middle">
+                          {label}
+                        </text>
+                      </g>
+                    ) : null}
+                  </g>
                 );
               })}
               {diagram.nodes
@@ -459,6 +540,16 @@ export function DiagramCanvas({
                         missing ? ' diagram-node--missing' : ''
                       }`}
                       onPointerDown={(event) => handlePointerDown(event, node.id)}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        const position = toDiagramPoint(event);
+                        onPartContextMenu?.({
+                          elementId: node.elementId,
+                          clientX: event.clientX,
+                          clientY: event.clientY,
+                          position,
+                        });
+                      }}
                     >
                       <rect width={node.w} height={node.h} rx={8} ry={8} />
                       <text x={12} y={24} className="diagram-node__title">
@@ -476,15 +567,24 @@ export function DiagramCanvas({
                   const element = elements[node.elementId];
                   const position = portPositions.get(node.id);
                   if (!position) return null;
+                  const owner = element?.ownerId ? elements[element.ownerId] : undefined;
                   const isSelected =
                     selectedNodeIds.includes(node.id) || (selection?.kind === 'element' && element?.id === selection.id);
+                  const isPartPort = owner?.metaclass === 'Part';
+                  const portClass = `diagram-node diagram-node--port${isSelected ? ' diagram-node--selected' : ''}${
+                    isPartPort ? ' diagram-node--part-port' : ' diagram-node--block-port'
+                  }`;
                   return (
                     <g
                       key={node.id}
-                      className={`diagram-node diagram-node--port${isSelected ? ' diagram-node--selected' : ''}`}
+                      className={portClass}
                       onPointerDown={(event) => handlePortPointerDown(event, node.id)}
                     >
-                      <circle cx={position.x} cy={position.y} r={8} />
+                      {isPartPort ? (
+                        <rect x={position.x - 7} y={position.y - 7} width={14} height={14} rx={3} ry={3} />
+                      ) : (
+                        <circle cx={position.x} cy={position.y} r={8} />
+                      )}
                       <text x={position.x + 12} y={position.y + 4} className="diagram-node__title">
                         {element?.name ?? 'Port'}
                       </text>

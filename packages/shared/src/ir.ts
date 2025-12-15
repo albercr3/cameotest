@@ -36,6 +36,7 @@ export const connectorRelationshipSchema = baseRelationshipSchema.extend({
   type: z.literal('Connector'),
   sourcePortId: z.string().uuid(),
   targetPortId: z.string().uuid(),
+  itemFlowLabel: z.string().optional(),
 });
 
 export const associationRelationshipSchema = baseRelationshipSchema.extend({

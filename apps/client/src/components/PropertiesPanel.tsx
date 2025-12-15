@@ -15,6 +15,7 @@ interface PropertiesPanelProps {
   onSelect: (selection: Selection) => void;
   onElementChange: (updates: Partial<Element>) => void;
   onRelationshipChange: (updates: Partial<Relationship>) => void;
+  onConnectorItemFlowChange?: (itemFlowLabel?: string) => void;
   onCreateRelationship?: (type: RelationshipType, targetId: string) => void;
   onDeleteRelationship?: () => void;
   onAddToDiagram?: () => void;
@@ -35,6 +36,7 @@ export function PropertiesPanel({
   onSelect,
   onElementChange,
   onRelationshipChange,
+  onConnectorItemFlowChange,
   onCreateRelationship,
   onDeleteRelationship,
   onAddToDiagram,
@@ -67,6 +69,7 @@ export function PropertiesPanel({
     const source = isConnector ? elements[relationship.sourcePortId] : elements[relationship.sourceId];
     const target = isConnector ? elements[relationship.targetPortId] : elements[relationship.targetId];
     const typeOptions = isConnector ? ['Connector'] : relationshipTypes;
+    const itemFlowLabel = relationship.type === 'Connector' ? relationship.itemFlowLabel ?? '' : '';
     return (
       <form className="properties" onSubmit={(event) => event.preventDefault()}>
         <div className="properties__actions">
@@ -100,6 +103,21 @@ export function PropertiesPanel({
 
         <label className="label">Target</label>
         <div className="pill">{target?.name ?? 'Missing target'}</div>
+
+        {isConnector ? (
+          <>
+            <label className="label" htmlFor="connector-item-flow">
+              Item flow
+            </label>
+            <input
+              id="connector-item-flow"
+              value={itemFlowLabel}
+              maxLength={80}
+              placeholder="Optional label"
+              onChange={(event) => onConnectorItemFlowChange?.(event.target.value.trim() || undefined)}
+            />
+          </>
+        ) : null}
       </form>
     );
   }

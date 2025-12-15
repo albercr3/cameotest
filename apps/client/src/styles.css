@@ -552,13 +552,24 @@ textarea {
   filter: drop-shadow(0 8px 18px rgba(79, 70, 229, 0.18));
 }
 
-.diagram-node--port circle {
+.diagram-node--block-port circle {
   fill: #fff;
   stroke: #0f172a;
   stroke-width: 1.5;
 }
 
 .diagram-node--port.diagram-node--selected circle {
+  stroke: #4f46e5;
+  stroke-width: 2;
+}
+
+.diagram-node--part-port rect {
+  fill: #fff;
+  stroke: #0f172a;
+  stroke-width: 1.5;
+}
+
+.diagram-node--part-port.diagram-node--selected rect {
   stroke: #4f46e5;
   stroke-width: 2;
 }
@@ -597,6 +608,17 @@ textarea {
 .diagram-edge--selected {
   stroke: #0ea5e9;
   stroke-width: 3;
+}
+
+.diagram-edge__label rect {
+  fill: #fff;
+  stroke: #cbd5e1;
+  stroke-width: 1;
+}
+
+.diagram-edge__label text {
+  font-size: 12px;
+  fill: #0f172a;
 }
 
 .toast-stack {
