@@ -3,72 +3,83 @@ import { z } from 'zod';
 export const metaclassSchema = z.enum(['Package', 'Block', 'Part', 'Port', 'Requirement']);
 export type Metaclass = z.infer<typeof metaclassSchema>;
 
-export const elementSchema = z.object({
-  id: z.string().uuid(),
-  metaclass: metaclassSchema,
-  name: z.string().min(1),
-  ownerId: z.string().uuid().nullable(),
-  documentation: z.string().default(''),
-  stereotypes: z.array(z.string()).default([]),
-  tags: z.record(z.string()).default({}),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
+export const elementSchema = z
+  .object({
+    id: z.string().uuid(),
+    metaclass: metaclassSchema,
+    name: z.string().min(1),
+    ownerId: z.string().uuid().nullable(),
+    documentation: z.string().default(''),
+    stereotypes: z.array(z.string()).default([]),
+    tags: z.record(z.string()).default({}),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .passthrough();
 export type Element = z.infer<typeof elementSchema>;
 
-export const relationshipSchema = z.object({
-  id: z.string().uuid(),
-  type: z.string().min(1),
-  sourceId: z.string().uuid(),
-  targetId: z.string().uuid(),
-  properties: z.record(z.any()).default({}),
-});
+export const relationshipSchema = z
+  .object({
+    id: z.string().uuid(),
+    type: z.string().min(1),
+    sourceId: z.string().uuid(),
+    targetId: z.string().uuid(),
+    properties: z.record(z.any()).default({}),
+  })
+  .passthrough();
 export type Relationship = z.infer<typeof relationshipSchema>;
 
-export const modelFileSchema = z.object({
-  elements: z.array(elementSchema),
-  relationships: z.array(relationshipSchema),
-});
+export const modelFileSchema = z
+  .object({
+    elements: z.array(elementSchema),
+    relationships: z.array(relationshipSchema),
+  })
+  .passthrough();
 export type ModelFile = z.infer<typeof modelFileSchema>;
 
-export const diagramNodeSchema = z.object({
-  id: z.string().uuid(),
-  elementId: z.string().uuid(),
-  x: z.number(),
-  y: z.number(),
-  w: z.number().positive(),
-  h: z.number().positive(),
-  compartments: z
-    .object({
-      collapsed: z.boolean().default(false),
-      showPorts: z.boolean().default(true),
+export const diagramNodeSchema = z
+  .object({
+    id: z.string().uuid(),
+    elementId: z.string().uuid(),
+    x: z.number(),
+    y: z.number(),
+    w: z.number().positive(),
+    h: z.number().positive(),
+    compartments: z
+      .object({
+        collapsed: z.boolean().default(false),
+        showPorts: z.boolean().default(true),
       showParts: z.boolean().default(true),
     })
     .default({ collapsed: false, showPorts: true, showParts: true }),
-  style: z
-    .object({
-      highlight: z.boolean().default(false),
-    })
-    .default({ highlight: false }),
-});
+    style: z
+      .object({
+        highlight: z.boolean().default(false),
+      })
+      .default({ highlight: false }),
+  })
+  .passthrough();
 export type DiagramNode = z.infer<typeof diagramNodeSchema>;
 
-export const diagramEdgeSchema = z.object({
-  id: z.string().uuid(),
-  relationshipId: z.string().uuid(),
-  sourceNodeId: z.string().uuid(),
-  targetNodeId: z.string().uuid(),
-  routingPoints: z.array(z.object({ x: z.number(), y: z.number() })).default([]),
-  label: z.string().default(''),
-});
+export const diagramEdgeSchema = z
+  .object({
+    id: z.string().uuid(),
+    relationshipId: z.string().uuid(),
+    sourceNodeId: z.string().uuid(),
+    targetNodeId: z.string().uuid(),
+    routingPoints: z.array(z.object({ x: z.number(), y: z.number() })).default([]),
+    label: z.string().default(''),
+  })
+  .passthrough();
 export type DiagramEdge = z.infer<typeof diagramEdgeSchema>;
 
-export const diagramSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  type: z.enum(['BDD', 'IBD']).default('BDD'),
-  ownerId: z.string().uuid().nullable(),
-  nodes: z.array(diagramNodeSchema),
+export const diagramSchema = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string(),
+    type: z.enum(['BDD', 'IBD']).default('BDD'),
+    ownerId: z.string().uuid().nullable(),
+    nodes: z.array(diagramNodeSchema),
   edges: z.array(diagramEdgeSchema),
   viewSettings: z
     .object({
@@ -79,21 +90,26 @@ export const diagramSchema = z.object({
       panY: z.number().default(0),
     })
     .default({ gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 }),
-});
+  })
+  .passthrough();
 export type Diagram = z.infer<typeof diagramSchema>;
 
-export const diagramsFileSchema = z.object({
-  diagrams: z.array(diagramSchema),
-});
+export const diagramsFileSchema = z
+  .object({
+    diagrams: z.array(diagramSchema),
+  })
+  .passthrough();
 export type DiagramsFile = z.infer<typeof diagramsFileSchema>;
 
-export const workspaceManifestSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string().optional(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
+export const workspaceManifestSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .passthrough();
 export type WorkspaceManifest = z.infer<typeof workspaceManifestSchema>;
 
 export interface WorkspaceFiles {

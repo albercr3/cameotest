@@ -130,13 +130,12 @@ app.post('/api/workspaces/:id/open', (req, res) => {
 });
 
 app.get('/api/workspaces/current', (_req, res) => {
-  if (!currentWorkspaceId) {
-    const first = listWorkspaces()[0];
-    if (!first) return res.status(404).json({ message: 'No workspaces available' });
-    currentWorkspaceId = first.id;
+  const workspaceId = currentWorkspaceId;
+  if (!workspaceId) {
+    return res.status(400).json({ error: 'No workspace selected' });
   }
   try {
-    const manifest = loadManifest(currentWorkspaceId);
+    const manifest = loadManifest(workspaceId);
     res.json({ current: manifest });
   } catch (error) {
     res.status(404).json({ message: 'Current workspace unavailable', details: String(error) });
@@ -170,8 +169,9 @@ app.post('/api/workspaces/current/save', (req, res) => {
 });
 
 app.post('/api/workspaces/current/import', (req, res) => {
-  if (!currentWorkspaceId) {
-    return res.status(400).json({ message: 'No workspace open' });
+  const workspaceId = currentWorkspaceId;
+  if (!workspaceId) {
+    return res.status(400).json({ error: 'No workspace selected' });
   }
   try {
     const body = req.body as Partial<WorkspaceFiles> & { model?: ModelFile };
@@ -179,8 +179,8 @@ app.post('/api/workspaces/current/import', (req, res) => {
       return res.status(400).json({ message: 'model payload is required' });
     }
     const model = modelFileSchema.parse(body.model);
-    const manifest = loadManifest(currentWorkspaceId);
-    const diagrams = loadDiagrams(currentWorkspaceId);
+    const manifest = loadManifest(workspaceId);
+    const diagrams = loadDiagrams(workspaceId);
     manifest.updatedAt = new Date().toISOString();
     writeWorkspace({ manifest, model, diagrams });
     res.json({ status: 'imported', manifest });
