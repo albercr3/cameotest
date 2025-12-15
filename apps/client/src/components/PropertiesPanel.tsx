@@ -19,6 +19,7 @@ interface PropertiesPanelProps {
   onDeleteRelationship?: () => void;
   onAddToDiagram?: () => void;
   onAddPort?: () => void;
+  onCreatePart?: () => void;
   onCreateIbd?: () => void;
 }
 
@@ -38,6 +39,7 @@ export function PropertiesPanel({
   onDeleteRelationship,
   onAddToDiagram,
   onAddPort,
+  onCreatePart,
   onCreateIbd,
 }: PropertiesPanelProps) {
   const [newTarget, setNewTarget] = useState('');
@@ -117,6 +119,11 @@ export function PropertiesPanel({
             Add Port
           </button>
         ) : null}
+        {onCreatePart ? (
+          <button type="button" className="button button--ghost" onClick={onCreatePart} disabled={!onCreatePart}>
+            Add Part
+          </button>
+        ) : null}
         {onCreateIbd ? (
           <button type="button" className="button button--ghost" onClick={onCreateIbd} disabled={!onCreateIbd}>
             Create / Open IBD
@@ -146,6 +153,15 @@ export function PropertiesPanel({
           </option>
         ))}
       </select>
+
+      {element.metaclass === 'Part' ? (
+        <>
+          <label className="label">Type</label>
+          <div className="pill">
+            {element.typeId ? elements[element.typeId]?.name ?? 'Missing type' : 'Unspecified type'}
+          </div>
+        </>
+      ) : null}
 
       <label className="label" htmlFor="prop-doc">
         Documentation

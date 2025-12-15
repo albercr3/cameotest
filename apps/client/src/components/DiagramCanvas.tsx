@@ -18,6 +18,7 @@ interface DiagramCanvasProps {
 }
 
 const GRID_SIZE = 20;
+const IBD_FRAME = { x: 240, y: 140, w: 640, h: 420 } as const;
 
 export function DiagramCanvas({
   diagram,
@@ -73,7 +74,16 @@ export function DiagramCanvas({
       if (!match) return node;
       const snappedX = Math.round((match.x + dx) / snap) * snap;
       const snappedY = Math.round((match.y + dy) / snap) * snap;
-      return { ...node, x: snappedX, y: snappedY };
+      let nextX = snappedX;
+      let nextY = snappedY;
+      const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
+      if (isIbd && nodeKind === 'Part') {
+        const maxX = IBD_FRAME.x + IBD_FRAME.w - node.w;
+        const maxY = IBD_FRAME.y + IBD_FRAME.h - node.h;
+        nextX = Math.min(Math.max(nextX, IBD_FRAME.x), maxX);
+        nextY = Math.min(Math.max(nextY, IBD_FRAME.y), maxY);
+      }
+      return { ...node, x: nextX, y: nextY };
     });
     onChange({ ...diagram, nodes: nextNodes });
   };
@@ -226,10 +236,12 @@ export function DiagramCanvas({
   };
 
   if (isIbd) {
-    const frame = { x: 240, y: 140, w: 640, h: 420 };
+    const frame = IBD_FRAME;
     const contextBlock = diagram.contextBlockId ? elements[diagram.contextBlockId] : undefined;
     const portPositions = new Map<string, { x: number; y: number }>();
     diagram.nodes.forEach((node) => {
+      const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
+      if (nodeKind !== 'Port') return;
       const placement = node.placement ?? { side: 'N', offset: 0.5 };
       const clampedOffset = Math.min(1, Math.max(0, placement.offset));
       let x = frame.x;
@@ -375,25 +387,57 @@ export function DiagramCanvas({
                   />
                 );
               })}
-              {diagram.nodes.map((node) => {
-                const element = elements[node.elementId];
-                const position = portPositions.get(node.id);
-                if (!position) return null;
-                const isSelected =
-                  selectedNodeIds.includes(node.id) || (selection?.kind === 'element' && element?.id === selection.id);
-                return (
-                  <g
-                    key={node.id}
-                    className={`diagram-node diagram-node--port${isSelected ? ' diagram-node--selected' : ''}`}
-                    onPointerDown={(event) => handlePortPointerDown(event, node.id)}
-                  >
-                    <circle cx={position.x} cy={position.y} r={8} />
-                    <text x={position.x + 12} y={position.y + 4} className="diagram-node__title">
-                      {element?.name ?? 'Port'}
-                    </text>
-                  </g>
-                );
-              })}
+              {diagram.nodes
+                .filter((node) => (node.kind ?? (node.placement ? 'Port' : 'Element')) === 'Part')
+                .map((node) => {
+                  const element = elements[node.elementId];
+                  const typeName = element?.typeId
+                    ? elements[element.typeId]?.name ?? 'Unknown type'
+                    : 'Unspecified type';
+                  const label = `${element?.name ?? 'Missing part'}: ${typeName}`;
+                  const missing = !element;
+                  const isSelected =
+                    selectedNodeIds.includes(node.id) || (selection?.kind === 'element' && element?.id === selection.id);
+                  return (
+                    <g
+                      key={node.id}
+                      transform={`translate(${node.x} ${node.y})`}
+                      className={`diagram-node diagram-node--part${isSelected ? ' diagram-node--selected' : ''}${
+                        missing ? ' diagram-node--missing' : ''
+                      }`}
+                      onPointerDown={(event) => handlePointerDown(event, node.id)}
+                    >
+                      <rect width={node.w} height={node.h} rx={8} ry={8} />
+                      <text x={12} y={24} className="diagram-node__title">
+                        {label}
+                      </text>
+                      <text x={12} y={42} className="diagram-node__meta">
+                        {typeName}
+                      </text>
+                    </g>
+                  );
+                })}
+              {diagram.nodes
+                .filter((node) => (node.kind ?? (node.placement ? 'Port' : 'Element')) === 'Port')
+                .map((node) => {
+                  const element = elements[node.elementId];
+                  const position = portPositions.get(node.id);
+                  if (!position) return null;
+                  const isSelected =
+                    selectedNodeIds.includes(node.id) || (selection?.kind === 'element' && element?.id === selection.id);
+                  return (
+                    <g
+                      key={node.id}
+                      className={`diagram-node diagram-node--port${isSelected ? ' diagram-node--selected' : ''}`}
+                      onPointerDown={(event) => handlePortPointerDown(event, node.id)}
+                    >
+                      <circle cx={position.x} cy={position.y} r={8} />
+                      <text x={position.x + 12} y={position.y + 4} className="diagram-node__title">
+                        {element?.name ?? 'Port'}
+                      </text>
+                    </g>
+                  );
+                })}
             </g>
             <defs>
               <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
