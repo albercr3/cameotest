@@ -135,20 +135,30 @@ export default function App() {
   const [diagramMenuOpen, setDiagramMenuOpen] = useState(false);
   const [codeDrawerOpen, setCodeDrawerOpen] = useState(false);
   const [drawerSelectedElementId, setDrawerSelectedElementId] = useState<string | null>(null);
+  const [codeDrawerPinned, setCodeDrawerPinned] = useState(false);
+  const [pinnedDrawerElementId, setPinnedDrawerElementId] = useState<string | null>(null);
   const [codeBaseSnippet, setCodeBaseSnippet] = useState('');
   const [codeDraft, setCodeDraft] = useState('');
   const [codeError, setCodeError] = useState<string | null>(null);
   const [pendingDrawerSwitchId, setPendingDrawerSwitchId] = useState<string | null | undefined>(undefined);
   const [externalModelChange, setExternalModelChange] = useState(false);
   const [propertiesCollapsed, setPropertiesCollapsed] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [renameState, setRenameState] = useState<
+    | { targetId: string; source: 'tree'; draft: string }
+    | { targetId: string; source: 'canvas'; draft: string; position: { x: number; y: number } }
+    | null
+  >(null);
   const pendingHistory = useRef(new Map<string, HistoryEntry>());
   const addOffset = useRef(0);
   const ibdPartOffset = useRef(0);
   const pasteOffset = useRef(0);
   const clipboardNodesRef = useRef<Diagram['nodes']>([]);
+  const lastDiagramPositionRef = useRef<{ x: number; y: number } | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const sysmlImportInputRef = useRef<HTMLInputElement | null>(null);
   const diagramMenuRef = useRef<HTMLDivElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
 
   const showToast = useCallback((message: string, kind: ToastItem['kind'] = 'info') => {
     const id = crypto.randomUUID();
@@ -159,21 +169,54 @@ export default function App() {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
+  const runSafely = useCallback(
+    (label: string, action: () => void) => {
+      try {
+        action();
+      } catch (error) {
+        console.error(label, error);
+        showToast(`${label} failed`, 'error');
+      }
+    },
+    [showToast],
+  );
+
   useEffect(() => {
     if (!contextMenu) return;
-    const close = () => setContextMenu(null);
+    const close = (event?: Event) => {
+      if (event && contextMenuRef.current && event.target instanceof Node) {
+        if (contextMenuRef.current.contains(event.target)) {
+          return;
+        }
+      }
+      setContextMenu(null);
+    };
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         close();
       }
     };
-    window.addEventListener('click', close);
+    const handleBlur = () => close();
+    window.addEventListener('pointerdown', close, { capture: true });
     window.addEventListener('keydown', handleKey);
+    window.addEventListener('blur', handleBlur);
     return () => {
-      window.removeEventListener('click', close);
+      window.removeEventListener('pointerdown', close, { capture: true } as EventListenerOptions);
       window.removeEventListener('keydown', handleKey);
+      window.removeEventListener('blur', handleBlur);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (!shortcutsOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShortcutsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [shortcutsOpen]);
 
   useEffect(() => {
     if (!diagramMenuOpen) return;
@@ -342,9 +385,8 @@ export default function App() {
         if (cancelled) return;
         console.error('Failed to open workspace', error);
         const message = error instanceof Error ? error.message : String(error);
-        setPayload(null);
-        setActiveDiagramId(undefined);
-        setSelectedNodeIds([]);
+        resetToLanding();
+        await refreshWorkspaces();
         setBanner({
           kind: 'error',
           messages: ['Workspace failed to load', message],
@@ -356,7 +398,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [activeId, resetToLanding]);
+  }, [activeId, refreshWorkspaces, resetToLanding]);
 
   useEffect(() => {
     setWorkspaceNameDraft(payload?.manifest.name ?? '');
@@ -384,18 +426,22 @@ export default function App() {
     return roots;
   }, [payload]);
 
-  const clampMenuPosition = useCallback((x: number, y: number) => {
+  const clampMenuPosition = useCallback((kind: ContextMenuState['kind'], x: number, y: number) => {
     if (typeof window === 'undefined') return { x, y };
     const margin = 8;
-    const width = 280;
-    const height = 340;
-    const clampedX = Math.min(Math.max(x, margin), Math.max(margin, window.innerWidth - width - margin));
-    const clampedY = Math.min(Math.max(y, margin), Math.max(margin, window.innerHeight - height - margin));
+    const width = kind === 'tree' ? 320 : 240;
+    const height = kind === 'tree' ? 420 : kind === 'canvas' ? 280 : 220;
+    const viewportWidth = document.documentElement?.clientWidth ?? window.innerWidth;
+    const viewportHeight = document.documentElement?.clientHeight ?? window.innerHeight;
+    const clampedX = Math.min(Math.max(x, margin), Math.max(margin, viewportWidth - width - margin));
+    const clampedY = Math.min(Math.max(y, margin), Math.max(margin, viewportHeight - height - margin));
     return { x: clampedX, y: clampedY };
   }, []);
 
   const handleTreeContextMenu = (element: Element, clientPosition: { x: number; y: number }) => {
-    const position = clampMenuPosition(clientPosition.x, clientPosition.y);
+    const position = clampMenuPosition('tree', clientPosition.x, clientPosition.y);
+    selectElement(element.id);
+    setSelectedNodeIds([]);
     setContextMenu({ kind: 'tree', x: position.x, y: position.y, elementId: element.id });
   };
 
@@ -459,6 +505,8 @@ export default function App() {
   const closeCodeDrawer = useCallback(() => {
     setCodeDrawerOpen(false);
     setPendingDrawerSwitchId(undefined);
+    setCodeDrawerPinned(false);
+    setPinnedDrawerElementId(null);
     setDrawerSelectedElementId(null);
     setCodeError(null);
     setExternalModelChange(false);
@@ -466,6 +514,15 @@ export default function App() {
 
   useEffect(() => {
     if (!codeDrawerOpen) return;
+    if (codeDrawerPinned) {
+      const pinnedExists = pinnedDrawerElementId && elementsById[pinnedDrawerElementId];
+      if (!pinnedExists) {
+        setCodeDrawerPinned(false);
+        setPinnedDrawerElementId(null);
+        setDrawerSelectedElementId(null);
+      }
+      return;
+    }
     const nextSelectionId = selectedElementId ?? null;
     if (nextSelectionId === drawerSelectedElementId) {
       setPendingDrawerSwitchId(undefined);
@@ -488,6 +545,16 @@ export default function App() {
     const found = payload.diagrams.diagrams.find((diagram) => diagram.id === activeDiagramId);
     return found ? normalizeDiagram(found) : undefined;
   }, [activeDiagramId, payload]);
+
+  const diagramBreadcrumb = useMemo(() => {
+    if (!activeDiagram) return null;
+    const ownerName = activeDiagram.ownerId ? elementsById[activeDiagram.ownerId]?.name ?? 'Package' : 'Root';
+    const contextName =
+      isIbdDiagram(activeDiagram) && activeDiagram.contextBlockId
+        ? elementsById[activeDiagram.contextBlockId]?.name
+        : undefined;
+    return [ownerName, activeDiagram.name, contextName].filter(Boolean).join(' / ');
+  }, [activeDiagram, elementsById]);
 
   useEffect(() => {
     if (!activeDiagram || !selection || selection.kind !== 'element') return;
@@ -646,6 +713,39 @@ export default function App() {
     });
   };
 
+  const beginRename = useCallback(
+    (targetId: string, source: 'tree' | 'canvas', position?: { x: number; y: number }) => {
+      const target = elementsById[targetId];
+      if (!target) return;
+      if (source === 'tree') {
+        setRenameState({ targetId, source, draft: target.name });
+      } else {
+        setRenameState({ targetId, source, draft: target.name, position: position ?? { x: 12, y: 12 } });
+      }
+    },
+    [elementsById],
+  );
+
+  const handleRenameChange = useCallback((value: string) => {
+    setRenameState((current) => (current ? { ...current, draft: value } : current));
+  }, []);
+
+  const handleRenameSubmit = useCallback(
+    (value?: string) => {
+      setRenameState((current) => {
+        if (!current) return current;
+        const nextName = (value ?? current.draft).trim();
+        if (nextName.length > 0) {
+          updateElement(current.targetId, { name: nextName });
+        }
+        return null;
+      });
+    },
+    [updateElement],
+  );
+
+  const handleRenameCancel = useCallback(() => setRenameState(null), []);
+
   const applyCodeDraft = () => {
     if (drawerSelectedElementId && !elementsById[drawerSelectedElementId]) {
       setCodeError('Element was removed. Discard edits or switch selection.');
@@ -682,6 +782,25 @@ export default function App() {
     }
     closeCodeDrawer();
   }, [closeCodeDrawer, isCodeDirty]);
+
+  const pinCodeDrawer = () => {
+    if (!drawerSelectedElementId) return;
+    setPinnedDrawerElementId(drawerSelectedElementId);
+    setCodeDrawerPinned(true);
+    setPendingDrawerSwitchId(undefined);
+  };
+
+  const unpinCodeDrawer = () => {
+    setCodeDrawerPinned(false);
+    const pendingId = pendingDrawerSwitchId ?? selectedElementId ?? null;
+    if (pendingDrawerSelection !== undefined) {
+      const nextElement = pendingDrawerSelection ?? (pendingId ? elementsById[pendingId] : undefined);
+      setDrawerSelectedElementId(nextElement?.id ?? null);
+      syncDrawerFromElement(nextElement);
+      setPendingDrawerSwitchId(undefined);
+    }
+    setPinnedDrawerElementId(null);
+  };
 
   const toggleCodeDrawer = () => {
     if (codeDrawerOpen) {
@@ -781,6 +900,7 @@ export default function App() {
         workspace.id === payload.manifest.id ? { ...workspace, name: trimmed, updatedAt: timestamp } : workspace,
       ),
     );
+    void refreshWorkspaces();
   };
 
   const editableSnippetForElement = (element: Element) => {
@@ -944,10 +1064,10 @@ export default function App() {
     }
   };
 
-  const openSampleWorkspace = () => {
+  const openSampleWorkspace = async () => {
     setStatus('Opening sample BDD workspace...');
     setBanner(null);
-    refreshWorkspaces();
+    await refreshWorkspaces();
     selectWorkspace('bdd-sample');
   };
 
@@ -1358,7 +1478,7 @@ export default function App() {
     return node.id;
   };
 
-  const addToDiagram = (elementId: string, options?: { select?: boolean }) => {
+  const addToDiagram = (elementId: string, options?: { select?: boolean; position?: { x: number; y: number } }) => {
     if (!payload || !activeDiagram) return;
     if (isIbdDiagram(activeDiagram)) {
       const element = elementsById[elementId];
@@ -1371,7 +1491,16 @@ export default function App() {
       }
       return;
     }
-    const result = ensureNodeInDiagram(activeDiagram, elementId);
+    const existingNode = activeDiagram.nodes.find((node) => node.elementId === elementId);
+    if (existingNode) {
+      if (options?.select !== false) {
+        selectElement(elementId);
+        setSelectedNodeIds([existingNode.id]);
+      }
+      return existingNode.id;
+    }
+    const targetPosition = options?.position ?? lastDiagramPositionRef.current;
+    const result = ensureNodeInDiagram(activeDiagram, elementId, targetPosition ?? undefined);
     if (result.diagram !== activeDiagram) {
       updateDiagram(activeDiagram.id, result.diagram);
     }
@@ -1412,64 +1541,70 @@ export default function App() {
     selectContainerId(selection?.kind === 'element' ? selection.id : activeDiagram?.ownerId ?? undefined) ?? null;
 
   const handleCreateBddFromMenu = () => {
-    const ownerId = diagramOwnerForNewDiagram();
-    createBddDiagram(ownerId);
-    setDiagramMenuOpen(false);
+    runSafely('Create BDD diagram', () => {
+      const ownerId = diagramOwnerForNewDiagram();
+      createBddDiagram(ownerId);
+      setDiagramMenuOpen(false);
+    });
   };
 
   const handleCreateIbdFromMenu = () => {
-    if (!selectedElement || selectedElement.metaclass !== 'Block') {
+    runSafely('Create IBD diagram', () => {
+      if (!selectedElement || selectedElement.metaclass !== 'Block') {
+        setDiagramMenuOpen(false);
+        return;
+      }
+      createIbdDiagramForBlock(selectedElement);
       setDiagramMenuOpen(false);
-      return;
-    }
-    createIbdDiagramForBlock(selectedElement);
-    setDiagramMenuOpen(false);
+    });
   };
 
   const handleDropElement = (payload: DraggedElementPayload, position: { x: number; y: number }) => {
-    if (!payload?.elementId || !activeDiagram) return;
-    const element = elementsById[payload.elementId];
-    if (!element) {
-      showToast('Dropped element not found', 'error');
-      return;
-    }
+    runSafely('Drop onto diagram', () => {
+      if (!payload?.elementId || !activeDiagram) return;
+      const element = elementsById[payload.elementId];
+      if (!element) {
+        showToast('Dropped element not found', 'error');
+        return;
+      }
 
-    if (isBddDiagram(activeDiagram)) {
-      const existing = activeDiagram.nodes.find((node) => node.elementId === element.id);
-      if (existing) {
-        setSelectedNodeIds([existing.id]);
+      if (isBddDiagram(activeDiagram)) {
+        const existing = activeDiagram.nodes.find((node) => node.elementId === element.id);
+        if (existing) {
+          setSelectedNodeIds([existing.id]);
+          selectElement(element.id);
+          showToast('Element already present in diagram');
+          return;
+        }
+        const result = ensureNodeInDiagram(activeDiagram, element.id, position);
+        updateDiagram(activeDiagram.id, result.diagram);
+        setSelectedNodeIds([result.nodeId]);
         selectElement(element.id);
-        showToast('Element already present in diagram');
         return;
       }
-      const result = ensureNodeInDiagram(activeDiagram, element.id, position);
-      updateDiagram(activeDiagram.id, result.diagram);
-      setSelectedNodeIds([result.nodeId]);
-      selectElement(element.id);
-      return;
-    }
 
-    if (isIbdDiagram(activeDiagram)) {
-      if (!belongsToContextBlock(element, activeDiagram.contextBlockId)) {
-        showToast('Only parts or ports owned by the context block can be dropped here', 'error');
-        return;
-      }
-      if (element.metaclass === 'Part') {
-        const id = addPartToIbdDiagram(activeDiagram, element.id, { select: true, position });
-        if (!id) {
-          showToast('Unable to place part on this diagram', 'error');
+      if (isIbdDiagram(activeDiagram)) {
+        if (!belongsToContextBlock(element, activeDiagram.contextBlockId)) {
+          showToast('Only parts or ports owned by the context block can be dropped here', 'error');
+          return;
         }
-        return;
-      }
-      if (element.metaclass === 'Port') {
-        const id = addPortToIbdDiagram(activeDiagram, element.id, { select: true, position });
-        if (!id) {
-          showToast('Unable to place port on this diagram', 'error');
+        if (element.metaclass === 'Part') {
+          const id = addPartToIbdDiagram(activeDiagram, element.id, { select: true, position });
+          if (!id) {
+            showToast('Unable to place part on this diagram', 'error');
+          }
+          return;
         }
-        return;
+        if (element.metaclass === 'Port') {
+          const id = addPortToIbdDiagram(activeDiagram, element.id, { select: true, position });
+          if (!id) {
+            showToast('Unable to place port on this diagram', 'error');
+          }
+          return;
+        }
+        showToast('Only parts or ports can be dropped on an IBD', 'error');
       }
-      showToast('Only parts or ports can be dropped on an IBD', 'error');
-    }
+    });
   };
 
   const handleCanvasContextMenu = (payload: {
@@ -1477,7 +1612,8 @@ export default function App() {
     clientY: number;
     position: { x: number; y: number };
   }) => {
-    const position = clampMenuPosition(payload.clientX, payload.clientY);
+    const position = clampMenuPosition('canvas', payload.clientX, payload.clientY);
+    lastDiagramPositionRef.current = payload.position;
     setContextMenu({ kind: 'canvas', x: position.x, y: position.y, position: payload.position });
   };
 
@@ -1487,7 +1623,7 @@ export default function App() {
     clientY: number;
     position: { x: number; y: number };
   }) => {
-    const position = clampMenuPosition(payload.clientX, payload.clientY);
+    const position = clampMenuPosition('part', payload.clientX, payload.clientY);
     setContextMenu({
       kind: 'part',
       x: position.x,
@@ -1496,6 +1632,18 @@ export default function App() {
       position: payload.position,
     });
   };
+
+  const diagramCenterPosition = useCallback(() => {
+    if (!activeDiagram) return undefined;
+    const view = activeDiagram.viewSettings;
+    const container = document.querySelector('.diagram-wrapper') as HTMLElement | null;
+    const width = container?.clientWidth ?? window.innerWidth;
+    const height = container?.clientHeight ?? window.innerHeight;
+    return {
+      x: view.panX + width / (2 * view.zoom),
+      y: view.panY + height / (2 * view.zoom),
+    };
+  }, [activeDiagram]);
 
   const findIbdForBlock = (blockId: string) =>
     payload?.diagrams.diagrams.find(
@@ -1628,18 +1776,20 @@ export default function App() {
   };
 
   const handlePortSelect = (portId: string, nodeId: string) => {
-    selectElement(portId);
-    setSelectedNodeIds([nodeId]);
-    if (connectMode && activeDiagram && isIbdDiagram(activeDiagram)) {
-      if (pendingConnectorPortId && pendingConnectorPortId !== portId) {
-        createConnector(pendingConnectorPortId, portId, activeDiagram);
-        setConnectMode(false);
+    runSafely('Connect ports', () => {
+      selectElement(portId);
+      setSelectedNodeIds([nodeId]);
+      if (connectMode && activeDiagram && isIbdDiagram(activeDiagram)) {
+        if (pendingConnectorPortId && pendingConnectorPortId !== portId) {
+          createConnector(pendingConnectorPortId, portId, activeDiagram);
+          setConnectMode(false);
+        } else {
+          setPendingConnectorPortId(portId);
+        }
       } else {
-        setPendingConnectorPortId(portId);
+        setPendingConnectorPortId(null);
       }
-    } else {
-      setPendingConnectorPortId(null);
-    }
+    });
   };
 
   const toggleConnectMode = () => {
@@ -1723,6 +1873,16 @@ export default function App() {
     const touchedElementIds = new Set(
       activeDiagram.nodes.filter((node) => toDelete.has(node.id)).map((node) => node.elementId),
     );
+    const edgeCount = activeDiagram.edges.filter(
+      (edge) => toDelete.has(edge.sourceNodeId) || toDelete.has(edge.targetNodeId),
+    ).length;
+    if (selectedNodeIds.length > 1 || edgeCount > 0) {
+      const nodeLabel = `${selectedNodeIds.length} node${selectedNodeIds.length === 1 ? '' : 's'}`;
+      const connectorLabel = edgeCount ? ` and ${edgeCount} connector${edgeCount === 1 ? '' : 's'}` : '';
+      if (!window.confirm(`Delete ${nodeLabel}${connectorLabel}?`)) {
+        return;
+      }
+    }
     applyChange((current) => {
       const diagrams = current.diagrams.diagrams.map((diagram) => {
         if (diagram.id !== activeDiagram.id) return diagram;
@@ -1915,6 +2075,7 @@ export default function App() {
     async (options?: { auto?: boolean }) => {
       if (!payload) return;
       setSaving(true);
+      setStatus('Saving...');
       const next: WorkspacePayload = {
         ...payload,
         manifest: { ...payload.manifest, updatedAt: new Date().toISOString() },
@@ -1926,12 +2087,20 @@ export default function App() {
         setDirty(false);
         setLastSavedAt(next.manifest.updatedAt ?? null);
         setAutosaveError(null);
+        setWorkspaces((list) =>
+          list.map((workspace) =>
+            workspace.id === next.manifest.id
+              ? { ...workspace, name: next.manifest.name, updatedAt: next.manifest.updatedAt ?? workspace.updatedAt }
+              : workspace,
+          ),
+        );
       } catch (error) {
         console.error(error);
         const message = error instanceof Error ? error.message : String(error);
         setStatus('Save failed');
         setAutosaveError(message);
         setBanner({ kind: 'error', messages: ['Save failed', message] });
+        showToast(`Save failed: ${message}`, 'error');
         if (options?.auto) {
           setAutosaveEnabled(false);
         }
@@ -1939,8 +2108,12 @@ export default function App() {
         setSaving(false);
       }
     },
-    [payload],
+    [payload, showToast],
   );
+
+  const retrySave = useCallback(() => {
+    void handleSave();
+  }, [handleSave]);
 
   const landingSubtitle = loadingWorkspaces
     ? 'Loading workspaces...'
@@ -1948,14 +2121,27 @@ export default function App() {
       ? 'No saved workspaces yet'
       : `${workspaces.length} available`;
 
+  const lastSavedDisplay = useMemo(
+    () =>
+      lastSavedAt
+        ? new Date(lastSavedAt).toLocaleTimeString([], {
+            hour12: false,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
+        : null,
+    [lastSavedAt],
+  );
+
   const autosaveStatus = useMemo(() => {
     if (!payload) return 'No workspace loaded';
     if (autosaveError) return `Save failed: ${autosaveError}`;
     if (saving) return 'Saving...';
     if (dirty) return autosaveEnabled ? 'Autosave pending' : 'Unsaved changes';
-    if (lastSavedAt) return `Saved ${new Date(lastSavedAt).toLocaleTimeString()}`;
+    if (lastSavedDisplay) return `Saved at ${lastSavedDisplay}`;
     return 'No changes yet';
-  }, [autosaveEnabled, autosaveError, dirty, lastSavedAt, payload, saving]);
+  }, [autosaveEnabled, autosaveError, dirty, lastSavedDisplay, payload, saving]);
 
   const canUndo = history.length > 0;
   const canRedo = redoStack.length > 0;
@@ -1980,17 +2166,26 @@ export default function App() {
       const canCreatePart = target.metaclass === 'Block';
       const canCreatePort = target.metaclass === 'Block' || target.metaclass === 'Part';
       const createPackage = () => {
-        createElement('Package', target.metaclass === 'Package' ? target.id : ownerForElements);
+        const id = createElement('Package', target.metaclass === 'Package' ? target.id : ownerForElements);
+        if (id) {
+          beginRename(id, 'tree');
+        }
         setContextMenu(null);
       };
       const createBlock = () => {
-        createElement('Block', ownerForElements);
+        const id = createElement('Block', ownerForElements);
+        if (id) {
+          beginRename(id, 'tree');
+        }
         setContextMenu(null);
       };
       const createPartHere = () => {
         const part = target.metaclass === 'Block' ? createPart(target.id) : undefined;
         if (part && activeDiagram && isIbdDiagram(activeDiagram) && activeDiagram.contextBlockId === target.id) {
           addPartToIbdDiagram(activeDiagram, part.id, { select: true, partElement: part });
+        }
+        if (part) {
+          beginRename(part.id, 'tree');
         }
         setContextMenu(null);
       };
@@ -2004,6 +2199,9 @@ export default function App() {
           belongsToContextBlock(target, activeDiagram.contextBlockId)
         ) {
           addPortToIbdDiagram(activeDiagram, portId, { select: true });
+        }
+        if (portId) {
+          beginRename(portId, 'tree');
         }
         setContextMenu(null);
       };
@@ -2028,7 +2226,7 @@ export default function App() {
           ? 'Not compatible with this diagram'
           : '';
       const addTargetToDiagram = () => {
-        addToDiagram(target.id);
+        addToDiagram(target.id, { position: diagramCenterPosition() });
         setContextMenu(null);
       };
       const openTargetProperties = () => {
@@ -2040,10 +2238,7 @@ export default function App() {
         setContextMenu(null);
       };
       const renameTarget = () => {
-        const next = window.prompt('Rename element', target.name)?.trim();
-        if (next) {
-          updateElement(target.id, { name: next });
-        }
+        beginRename(target.id, 'tree');
         setContextMenu(null);
       };
       const childCount = payload?.model.elements.filter((el) => el.ownerId === target.id).length ?? 0;
@@ -2062,6 +2257,7 @@ export default function App() {
       return (
         <div
           className="context-menu"
+          ref={contextMenuRef}
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -2158,6 +2354,7 @@ export default function App() {
       return (
         <div
           className="context-menu"
+          ref={contextMenuRef}
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -2184,6 +2381,7 @@ export default function App() {
             updateDiagram(activeDiagram.id, result.diagram);
             setSelectedNodeIds([result.nodeId]);
             selectElement(elementId);
+            beginRename(elementId, 'canvas', { x: contextMenu.x, y: contextMenu.y });
           }
         } else if (isIbdDiagram(activeDiagram) && activeDiagram.contextBlockId) {
           const part = createPart(activeDiagram.contextBlockId);
@@ -2193,6 +2391,7 @@ export default function App() {
               position: contextMenu.position,
               partElement: part,
             });
+            beginRename(part.id, 'canvas', { x: contextMenu.x, y: contextMenu.y });
           }
         }
         setContextMenu(null);
@@ -2224,6 +2423,7 @@ export default function App() {
       return (
         <div
           className="context-menu"
+          ref={contextMenuRef}
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -2307,6 +2507,8 @@ export default function App() {
           onExportSysml={payload ? handleExportSysml : undefined}
           autosaveEnabled={autosaveEnabled}
           autosaveStatus={autosaveStatus}
+          autosaveStatusTitle={lastSavedDisplay ? `Last saved at ${lastSavedDisplay}` : undefined}
+          autosaveError={autosaveError}
           onToggleAutosave={
             payload
               ? () => {
@@ -2315,6 +2517,7 @@ export default function App() {
                 }
               : undefined
           }
+          onRetrySave={retrySave}
           canUndo={canUndo}
           canRedo={canRedo}
           onUndo={canUndo ? undo : undefined}
@@ -2322,8 +2525,49 @@ export default function App() {
           connectMode={connectMode}
           canConnect={canUseConnectMode}
           onToggleConnectMode={canUseConnectMode ? toggleConnectMode : undefined}
+          onShowShortcuts={() => setShortcutsOpen(true)}
         />
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        {shortcutsOpen ? (
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="shortcuts-title"
+            onClick={() => setShortcutsOpen(false)}
+          >
+            <div className="modal__content" onClick={(event) => event.stopPropagation()}>
+              <div className="modal__header">
+                <h3 id="shortcuts-title">Keyboard shortcuts</h3>
+                <button type="button" className="button button--ghost" onClick={() => setShortcutsOpen(false)}>
+                  Close
+                </button>
+              </div>
+              <div className="shortcuts-list" role="list">
+                <div className="shortcuts-list__item" role="listitem">
+                  <span>Undo</span>
+                  <span>Ctrl/Cmd + Z</span>
+                </div>
+                <div className="shortcuts-list__item" role="listitem">
+                  <span>Redo</span>
+                  <span>Ctrl/Cmd + Shift + Z</span>
+                </div>
+                <div className="shortcuts-list__item" role="listitem">
+                  <span>Delete selection</span>
+                  <span>Delete / Backspace</span>
+                </div>
+                <div className="shortcuts-list__item" role="listitem">
+                  <span>Copy / Paste</span>
+                  <span>Ctrl/Cmd + C, Ctrl/Cmd + V</span>
+                </div>
+                <div className="shortcuts-list__item" role="listitem">
+                  <span>Apply in code drawer</span>
+                  <span>Ctrl/Cmd + Enter</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
         <input
           ref={importInputRef}
           type="file"
@@ -2339,6 +2583,27 @@ export default function App() {
           onChange={handleSysmlImportChange}
         />
         {contextMenuNode}
+        {renameState?.source === 'canvas' ? (
+          <div className="canvas-rename" style={{ left: renameState.position.x, top: renameState.position.y }}>
+            <input
+              className="canvas-rename__input"
+              value={renameState.draft}
+              onChange={(event) => handleRenameChange(event.target.value)}
+              onBlur={handleRenameCancel}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  handleRenameSubmit(renameState.draft);
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  handleRenameCancel();
+                }
+              }}
+              autoFocus
+            />
+          </div>
+        ) : null}
         {banner ? (
           <div className={`banner banner--${banner.kind}`}>
             {banner.messages.map((message) => (
@@ -2357,22 +2622,27 @@ export default function App() {
               <ModelBrowser
                 tree={tree}
                 search={search}
-              onSearch={setSearch}
-              selectedId={selectedElementId}
-              onSelect={selectElement}
-              onCreatePackage={() => createElement('Package')}
-              onCreateBlock={() => createElement('Block')}
-              onDelete={selectedElementId ? handleDelete : undefined}
-              onAddToDiagram={
-                selectedElementId && canAddElementToDiagram
-                  ? () => addToDiagram(selectedElementId)
-                  : undefined
-              }
-              activeDiagram={activeDiagram}
-              disableActions={!payload}
-              onContextMenu={handleTreeContextMenu}
-            />
-          </Panel>
+                onSearch={setSearch}
+                selectedId={selectedElementId}
+                renamingId={renameState?.source === 'tree' ? renameState.targetId : undefined}
+                renameDraft={renameState?.source === 'tree' ? renameState.draft : undefined}
+                onRenameChange={handleRenameChange}
+                onRenameSubmit={handleRenameSubmit}
+                onRenameCancel={handleRenameCancel}
+                onSelect={selectElement}
+                onCreatePackage={() => createElement('Package')}
+                onCreateBlock={() => createElement('Block')}
+                onDelete={selectedElementId ? handleDelete : undefined}
+                onAddToDiagram={
+                  selectedElementId && canAddElementToDiagram
+                    ? () => addToDiagram(selectedElementId)
+                    : undefined
+                }
+                activeDiagram={activeDiagram}
+                disableActions={!payload}
+                onContextMenu={handleTreeContextMenu}
+              />
+            </Panel>
           <Panel title={workspaceTitleNode} subtitle={payload?.manifest.description}>
             <p className="lede">
               {payload
@@ -2382,6 +2652,7 @@ export default function App() {
             {activeDiagram ? (
               <div className="diagram-wrapper">
                 <div className="diagram-header">
+                  {diagramBreadcrumb ? <div className="diagram-breadcrumb">{diagramBreadcrumb}</div> : null}
                   <DiagramTabs
                     diagrams={payload?.diagrams.diagrams ?? []}
                     activeId={activeDiagramId}
@@ -2442,24 +2713,27 @@ export default function App() {
                 />
               </div>
             ) : (
-              <div className="summary-cards">
-                <div className="card">
-                  <div className="card__label">Workspace ID</div>
-                  <div className="card__value">{payload?.manifest.id ?? '—'}</div>
+              <>
+                <div className="empty-state">No diagram open. Select or create a diagram to begin.</div>
+                <div className="summary-cards">
+                  <div className="card">
+                    <div className="card__label">Workspace ID</div>
+                    <div className="card__value">{payload?.manifest.id ?? '—'}</div>
+                  </div>
+                  <div className="card">
+                    <div className="card__label">IR version</div>
+                    <div className="card__value">{IR_VERSION}</div>
+                  </div>
+                  <div className="card">
+                    <div className="card__label">Updated</div>
+                    <div className="card__value">{payload?.manifest.updatedAt ?? '—'}</div>
+                  </div>
+                  <div className="card">
+                    <div className="card__label">Created</div>
+                    <div className="card__value">{payload?.manifest.createdAt ?? '—'}</div>
+                  </div>
                 </div>
-                <div className="card">
-                  <div className="card__label">IR version</div>
-                  <div className="card__value">{IR_VERSION}</div>
-                </div>
-                <div className="card">
-                  <div className="card__label">Updated</div>
-                  <div className="card__value">{payload?.manifest.updatedAt ?? '—'}</div>
-                </div>
-                <div className="card">
-                  <div className="card__label">Created</div>
-                  <div className="card__value">{payload?.manifest.createdAt ?? '—'}</div>
-                </div>
-              </div>
+              </>
             )}
           </Panel>
           <Panel
@@ -2510,7 +2784,7 @@ export default function App() {
                 onDeleteRelationship={handleDeleteRelationship}
                 onAddToDiagram={
                   selectedElementId && canAddElementToDiagram
-                    ? () => addToDiagram(selectedElementId)
+                    ? () => addToDiagram(selectedElementId, { position: diagramCenterPosition() })
                     : undefined
                 }
                 onAddPort={
@@ -2621,9 +2895,12 @@ export default function App() {
           canApply={canApplyCodeDraft}
           externalChange={externalModelChange}
           pendingElement={pendingDrawerSelection}
+          pinned={codeDrawerPinned}
           preview={sysmlPreview}
           draft={codeDraft}
           error={drawerError}
+          onPin={pinCodeDrawer}
+          onUnpin={unpinCodeDrawer}
           onDraftChange={setCodeDraft}
           onApply={applyCodeDraft}
           onClose={requestCloseCodeDrawer}

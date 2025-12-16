@@ -84,6 +84,11 @@ body {
   color: #0f172a;
 }
 
+.toolbar__retry {
+  padding: 6px 10px;
+  font-weight: 700;
+}
+
 .toolbar__label {
   font-weight: 600;
   color: #334155;
@@ -169,21 +174,23 @@ select {
 }
 
 .panel {
-  background: white;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
   display: flex;
   flex-direction: column;
+  transition: box-shadow 180ms ease, border-color 180ms ease;
 }
 
 .panel__header {
-  padding: 16px 16px 0;
+  padding: 14px 16px 6px;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .panel__header h2 {
@@ -205,7 +212,7 @@ select {
 .panel__actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .workspace-title-input {
@@ -378,7 +385,7 @@ select {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .tree__item {
@@ -387,7 +394,7 @@ select {
   border: 1px solid #e2e8f0;
   background: linear-gradient(180deg, #f8fafc, #fff);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -408,12 +415,21 @@ select {
   background: #eef2ff;
 }
 
+.tree__rename {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: inherit;
+}
+
 .tree__title {
   font-weight: 600;
 }
 
 .tree__meta {
-  font-size: 12px;
+  font-size: 11px;
   color: #475569;
 }
 
@@ -511,6 +527,15 @@ textarea {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.diagram-breadcrumb {
+  font-size: 12px;
+  color: #475569;
+  background: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
 }
 
 .diagram-meta {
@@ -641,11 +666,19 @@ textarea {
   cursor: pointer;
   min-width: 120px;
   text-align: left;
+  transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
 .diagram-tab--active {
   border-color: #4f46e5;
   box-shadow: 0 4px 10px rgba(79, 70, 229, 0.18);
+  background: #eef2ff;
+}
+
+.diagram-tab:hover {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  transform: translateY(-1px);
 }
 
 .diagram-tab__name {
@@ -698,6 +731,10 @@ textarea {
 .diagram-canvas--dropping {
   box-shadow: inset 0 0 0 2px #4f46e5;
   transition: box-shadow 120ms ease;
+}
+
+.diagram-canvas--connect {
+  cursor: crosshair;
 }
 
 .diagram-node rect {
@@ -836,6 +873,49 @@ textarea {
   color: inherit;
 }
 
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: fade-in 180ms ease;
+}
+
+.modal__content {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+  min-width: 320px;
+  max-width: 90%;
+  border: 1px solid #e2e8f0;
+}
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.shortcuts-list {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 16px;
+}
+
+.shortcuts-list__item {
+  display: contents;
+}
+
+.shortcuts-list__item span:last-child {
+  color: #475569;
+  font-weight: 700;
+}
+
 @keyframes pop-in {
   from {
     opacity: 0;
@@ -844,6 +924,15 @@ textarea {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
@@ -929,6 +1018,28 @@ textarea {
   color: #b91c1c;
 }
 
+.canvas-rename {
+  position: fixed;
+  transform: translate(-8px, -8px);
+  background: #0b1021f2;
+  color: #e2e8f0;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  z-index: 20;
+}
+
+.canvas-rename__input {
+  border: 1px solid #334155;
+  background: #111827;
+  color: #f8fafc;
+  border-radius: 8px;
+  padding: 8px 10px;
+  min-width: 220px;
+  font: inherit;
+}
+
 .diagram-node--related rect {
   stroke: #0ea5e9;
   stroke-dasharray: 4 4;
@@ -975,7 +1086,7 @@ textarea {
   box-shadow: -12px 0 30px rgba(15, 23, 42, 0.35);
   transform: translateX(110%);
   opacity: 0;
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  transition: transform 0.2s ease, opacity 0.2s ease;
   z-index: 40;
   display: flex;
   flex-direction: column;
@@ -992,6 +1103,11 @@ textarea {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.code-drawer__header-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .code-drawer__header-left {

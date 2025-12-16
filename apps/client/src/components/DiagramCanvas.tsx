@@ -83,10 +83,46 @@ export function DiagramCanvas({
     viewRef.current = diagram.viewSettings;
   }, [diagram]);
 
+  const clearNodeDrag = () => {
+    nodeDragKey.current = null;
+    nodeDragMoved.current = false;
+    dragStart.current = null;
+    window.removeEventListener('pointermove', handlePointerMove);
+    window.removeEventListener('pointerup', handlePointerUp);
+  };
+
+  const clearPan = () => {
+    panStart.current = null;
+    window.removeEventListener('pointermove', handleCanvasPointerMove);
+    window.removeEventListener('pointerup', handleCanvasPointerUp);
+  };
+
+  const clearMarquee = () => {
+    marqueeStart.current = null;
+    setMarquee(null);
+    window.removeEventListener('pointermove', handleMarqueePointerMove);
+    window.removeEventListener('pointerup', handleMarqueePointerUp);
+  };
+
   useEffect(() => {
-    const onPointerCancel = (event: PointerEvent) => releasePointerCapture(event.pointerId);
+    const onPointerCancel = (event: PointerEvent) => {
+      clearNodeDrag();
+      clearPan();
+      clearMarquee();
+      releasePointerCapture(event.pointerId);
+    };
+    const onBlur = () => {
+      clearNodeDrag();
+      clearPan();
+      clearMarquee();
+      releasePointerCapture();
+    };
     window.addEventListener('pointercancel', onPointerCancel);
-    return () => window.removeEventListener('pointercancel', onPointerCancel);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('pointercancel', onPointerCancel);
+      window.removeEventListener('blur', onBlur);
+    };
   }, []);
 
   const toDiagramPoint = (
@@ -154,11 +190,6 @@ export function DiagramCanvas({
     event.preventDefault();
     event.stopPropagation();
     if (event.button !== 0) return;
-
-    if (event.altKey || event.ctrlKey || event.metaKey) {
-      startPan(event);
-      return;
-    }
 
     const node = nodesById.get(nodeId);
     if (!node) return;
@@ -523,6 +554,17 @@ export function DiagramCanvas({
       window.removeEventListener('pointerup', handlePortPointerUp);
     };
 
+    const cancelPortDrag = (pointerId?: number) => {
+      if (portDragRef.current) {
+        portDragRef.current = null;
+      }
+      portDragMoved.current = false;
+      setDraggingPortId(null);
+      releasePointerCapture(pointerId);
+      window.removeEventListener('pointermove', handlePortPointerMove);
+      window.removeEventListener('pointerup', handlePortPointerUp);
+    };
+
     const handlePortPointerDown = (event: React.PointerEvent, nodeId: string) => {
       event.preventDefault();
       event.stopPropagation();
@@ -540,6 +582,17 @@ export function DiagramCanvas({
       window.addEventListener('pointermove', handlePortPointerMove);
       window.addEventListener('pointerup', handlePortPointerUp);
     };
+
+    useEffect(() => {
+      const onCancel = (event: PointerEvent) => cancelPortDrag(event.pointerId);
+      const onBlur = () => cancelPortDrag();
+      window.addEventListener('pointercancel', onCancel);
+      window.addEventListener('blur', onBlur);
+      return () => {
+        window.removeEventListener('pointercancel', onCancel);
+        window.removeEventListener('blur', onBlur);
+      };
+    }, []);
 
     const handleIbdCanvasPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
       if ((event.target as globalThis.Element | null)?.closest('.diagram-node')) return;
@@ -572,7 +625,7 @@ export function DiagramCanvas({
       <div
         className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}${
           isDropActive ? ' diagram-canvas--dropping' : ''
-        }`}
+        }${connectMode ? ' diagram-canvas--connect' : ''}`}
         style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
         onWheel={handleWheel}
         onDragOver={handleDragOver}

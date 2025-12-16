@@ -15,7 +15,10 @@ interface ToolbarProps {
   onExportSysml?: () => void;
   autosaveEnabled: boolean;
   autosaveStatus: string;
+  autosaveStatusTitle?: string;
+  autosaveError?: string | null;
   onToggleAutosave?: () => void;
+  onRetrySave?: () => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo?: () => void;
@@ -23,6 +26,7 @@ interface ToolbarProps {
   connectMode: boolean;
   canConnect: boolean;
   onToggleConnectMode?: () => void;
+  onShowShortcuts?: () => void;
 }
 
 export function Toolbar({
@@ -39,7 +43,10 @@ export function Toolbar({
   onExportSysml,
   autosaveEnabled,
   autosaveStatus,
+  autosaveStatusTitle,
+  autosaveError,
   onToggleAutosave,
+  onRetrySave,
   canUndo,
   canRedo,
   onUndo,
@@ -47,6 +54,7 @@ export function Toolbar({
   connectMode,
   canConnect,
   onToggleConnectMode,
+  onShowShortcuts,
 }: ToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -96,7 +104,20 @@ export function Toolbar({
           />
           <span>Autosave</span>
         </label>
-        <span className="toolbar__status toolbar__status--inline">{autosaveStatus}</span>
+        <span className="toolbar__status toolbar__status--inline" title={autosaveStatusTitle}>
+          {autosaveStatus}
+        </span>
+        {autosaveError ? (
+          <button
+            className="button button--ghost toolbar__retry"
+            type="button"
+            onClick={onRetrySave}
+            disabled={!onRetrySave || saving}
+            title="Retry saving your changes"
+          >
+            Retry save
+          </button>
+        ) : null}
         <div className="toolbar__menu" ref={menuRef}>
           <button
             className="button button--ghost toolbar__menu-trigger"
@@ -145,6 +166,17 @@ export function Toolbar({
                   {connectMode ? 'Connecting…' : 'Connect mode'}
                 </button>
               ) : null}
+              <div className="toolbar__menu-label">Help</div>
+              <button
+                className="toolbar__menu-item"
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onShowShortcuts?.();
+                }}
+              >
+                Shortcuts
+              </button>
             </div>
           ) : null}
         </div>
