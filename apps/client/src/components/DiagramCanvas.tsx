@@ -441,43 +441,31 @@ export function DiagramCanvas({
     window.removeEventListener('pointermove', handleMarqueePointerMove);
     window.removeEventListener('pointerup', handleMarqueePointerUp);
   };
-  useEffect(() => {
-    if (!isIbd) return;
-    const onCancel = (event: PointerEvent) => cancelPortDrag(event.pointerId);
-    const onBlur = () => cancelPortDrag();
-    window.addEventListener('pointercancel', onCancel);
-    window.addEventListener('blur', onBlur);
-    return () => {
-      window.removeEventListener('pointercancel', onCancel);
-      window.removeEventListener('blur', onBlur);
-    };
-  }, [cancelPortDrag, isIbd]);
-
-    function handlePortPointerMove(event: PointerEvent) {
-      if (!portDragRef.current) return;
-      const node = nodesById.get(portDragRef.current.portId);
-      if (!node || !isIbd) return;
-      const element = elements[node.elementId];
-      const ownerInfo = ownerRectForPort(element);
+  function handlePortPointerMove(event: PointerEvent) {
+    if (!portDragRef.current) return;
+    const node = nodesById.get(portDragRef.current.portId);
+    if (!node || !isIbd) return;
+    const element = elements[node.elementId];
+    const ownerInfo = ownerRectForPort(element);
     if (!ownerInfo) return;
     const placement = placementFromPoint(toDiagramPoint(event), ownerInfo.rect);
     const currentPlacement = node.placement ?? { side: 'N', offset: 0.5 };
     if (currentPlacement.side === placement.side && currentPlacement.offset === placement.offset) return;
     portDragMoved.current = true;
-      const nextNodes = diagram.nodes.map((candidate) =>
-        candidate.id === portDragRef.current?.portId ? { ...candidate, placement } : candidate,
-      );
-      onChange({ ...diagram, nodes: nextNodes }, { transient: true, historyKey: portDragRef.current.historyKey });
-    }
+    const nextNodes = diagram.nodes.map((candidate) =>
+      candidate.id === portDragRef.current?.portId ? { ...candidate, placement } : candidate,
+    );
+    onChange({ ...diagram, nodes: nextNodes }, { transient: true, historyKey: portDragRef.current.historyKey });
+  }
 
-    function handlePortPointerUp(event: PointerEvent) {
-      if (portDragMoved.current && portDragRef.current) {
-        const { historyKey } = portDragRef.current;
-        const latestDiagram = diagramRef.current ?? diagram;
-        onChange(latestDiagram, { historyKey });
-      }
-      cancelPortDrag(event.pointerId);
+  function handlePortPointerUp(event: PointerEvent) {
+    if (portDragMoved.current && portDragRef.current) {
+      const { historyKey } = portDragRef.current;
+      const latestDiagram = diagramRef.current ?? diagram;
+      onChange(latestDiagram, { historyKey });
     }
+    cancelPortDrag(event.pointerId);
+  }
 
   const handlePortPointerDown = (event: React.PointerEvent, nodeId: string) => {
     event.preventDefault();
