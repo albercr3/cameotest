@@ -105,6 +105,27 @@ const normalizeDiagram = (diagram: Diagram): Diagram => {
 const isBddDiagram = (diagram?: Diagram) => diagramKindOf(diagram) === 'BDD';
 const isIbdDiagram = (diagram?: Diagram) => diagramKindOf(diagram) === 'IBD';
 
+const generateSysmlPreview = (
+  element?: Element,
+  relationships: Relationship[] = [],
+  byId?: Record<string, Element>,
+) => {
+  if (!element) return 'Select an element to view generated SysML text.';
+  const header = `${element.metaclass.toLowerCase()} ${element.name}`;
+  const stereo = element.stereotypes?.length ? ` <<${element.stereotypes.join(', ')}>>` : '';
+  const doc = element.documentation ? `  doc "${element.documentation}"` : '';
+  const tagLines = Object.entries(element.tags ?? {}).map(([key, value]) => `  tag ${key} = ${value}`);
+  const relLines = relationships.map((rel) => {
+    if (rel.type === 'Connector') return `connector ${rel.sourcePortId} -> ${rel.targetPortId}`;
+    const source = rel.sourceId ? byId?.[rel.sourceId]?.name ?? rel.sourceId : '—';
+    const target = rel.targetId ? byId?.[rel.targetId]?.name ?? rel.targetId : '—';
+    return `${rel.type.toLowerCase()} ${source} -> ${target}`;
+  });
+  return [header + stereo, doc, ...tagLines, relLines.length ? 'relations:' : null, ...relLines.map((line) => `  ${line}`)]
+    .filter(Boolean)
+    .join('\n');
+};
+
 export default function App() {
   const [workspaces, setWorkspaces] = useState<WorkspaceManifest[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
@@ -909,23 +930,6 @@ export default function App() {
       .map(([key, value]) => `${key}=${value}`)
       .join(', ');
     return `name: ${element.name}\ndoc: ${element.documentation ?? ''}\nstereotypes: ${stereotypes}\ntags: ${tags}`;
-  };
-
-  const generateSysmlPreview = (element?: Element, relationships: Relationship[] = [], byId?: Record<string, Element>) => {
-    if (!element) return 'Select an element to view generated SysML text.';
-    const header = `${element.metaclass.toLowerCase()} ${element.name}`;
-    const stereo = element.stereotypes?.length ? ` <<${element.stereotypes.join(', ')}>>` : '';
-    const doc = element.documentation ? `  doc "${element.documentation}"` : '';
-    const tagLines = Object.entries(element.tags ?? {}).map(([key, value]) => `  tag ${key} = ${value}`);
-    const relLines = relationships.map((rel) => {
-      if (rel.type === 'Connector') return `connector ${rel.sourcePortId} -> ${rel.targetPortId}`;
-      const source = rel.sourceId ? byId?.[rel.sourceId]?.name ?? rel.sourceId : '—';
-      const target = rel.targetId ? byId?.[rel.targetId]?.name ?? rel.targetId : '—';
-      return `${rel.type.toLowerCase()} ${source} -> ${target}`;
-    });
-    return [header + stereo, doc, ...tagLines, relLines.length ? 'relations:' : null, ...relLines.map((line) => `  ${line}`)]
-      .filter(Boolean)
-      .join('\n');
   };
 
   const parseEditableSnippet = (snippet: string) => {
