@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Diagram, Element, Relationship } from '@cameotest/shared';
 import { DraggedElementPayload, ELEMENT_DRAG_MIME } from '../dragTypes';
+import { accentForMetaclass } from '../styles/accents';
 
 type Selection = { kind: 'element' | 'relationship'; id: string };
 
@@ -26,6 +27,8 @@ interface DiagramCanvasProps {
 }
 
 const GRID_SIZE = 20;
+const VIEWBOX_WIDTH = 1200;
+const VIEWBOX_HEIGHT = 800;
 const IBD_FRAME = { x: 240, y: 140, w: 640, h: 420 } as const;
 
 export function DiagramCanvas({
@@ -66,6 +69,7 @@ export function DiagramCanvas({
   const [draggingPortId, setDraggingPortId] = useState<string | null>(null);
   const [isDropActive, setIsDropActive] = useState(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const spacePanActive = useRef(false);
 
   const nodesById = useMemo(() => {
     const map = new Map(diagram.nodes.map((node) => [node.id, node]));
@@ -111,29 +115,59 @@ export function DiagramCanvas({
       clearMarquee();
       releasePointerCapture(event.pointerId);
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code === 'Space') {
+        spacePanActive.current = true;
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code === 'Space') {
+        spacePanActive.current = false;
+      }
+    };
     const onBlur = () => {
       clearNodeDrag();
       clearPan();
       clearMarquee();
       releasePointerCapture();
+      spacePanActive.current = false;
     };
     window.addEventListener('pointercancel', onPointerCancel);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
     return () => {
       window.removeEventListener('pointercancel', onPointerCancel);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
   }, []);
 
+  const getSvgMetrics = () => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    const safeRect = rect ?? new DOMRect(0, 0, VIEWBOX_WIDTH, VIEWBOX_HEIGHT);
+    const scaleX = VIEWBOX_WIDTH / safeRect.width;
+    const scaleY = VIEWBOX_HEIGHT / safeRect.height;
+    return { rect: safeRect, scaleX, scaleY };
+  };
+
   const toDiagramPoint = (
     event: React.PointerEvent | PointerEvent | React.DragEvent | React.MouseEvent,
   ) => {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
+    const { rect, scaleX, scaleY } = getSvgMetrics();
     const currentView = viewRef.current;
-    const x = (event.clientX - rect.left) / currentView.zoom - currentView.panX;
-    const y = (event.clientY - rect.top) / currentView.zoom - currentView.panY;
+    const x = ((event.clientX - rect.left) * scaleX) / currentView.zoom - currentView.panX;
+    const y = ((event.clientY - rect.top) * scaleY) / currentView.zoom - currentView.panY;
     return { x, y };
+  };
+
+  const pointerDeltaToDiagram = (event: PointerEvent, start: { x: number; y: number }) => {
+    const { scaleX, scaleY } = getSvgMetrics();
+    const currentView = viewRef.current;
+    const dx = ((event.clientX - start.x) * scaleX) / currentView.zoom;
+    const dy = ((event.clientY - start.y) * scaleY) / currentView.zoom;
+    return { dx, dy };
   };
 
   const updateNodePositions = (
@@ -222,9 +256,7 @@ export function DiagramCanvas({
 
   const handlePointerMove = (event: PointerEvent) => {
     if (!dragStart.current || dragStart.current.nodes.length === 0) return;
-    const currentView = viewRef.current;
-    const dx = (event.clientX - dragStart.current.x) / currentView.zoom;
-    const dy = (event.clientY - dragStart.current.y) / currentView.zoom;
+    const { dx, dy } = pointerDeltaToDiagram(event, dragStart.current);
     nodeDragMoved.current = nodeDragMoved.current || dx !== 0 || dy !== 0;
     updateNodePositions(dragStart.current.nodes, dx, dy, {
       transient: true,
@@ -251,7 +283,13 @@ export function DiagramCanvas({
     onSelectNodes?.([]);
     onSelectElement?.(undefined);
     onSelectRelationship?.(undefined);
-    const isPan = event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey;
+    const isPan =
+      event.button === 1 ||
+      event.button !== 0 ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      spacePanActive.current;
     if (isPan) {
       startPan(event);
       return;
@@ -270,8 +308,9 @@ export function DiagramCanvas({
     if (!panStart.current) return;
     const currentView = viewRef.current;
     const currentDiagram = diagramRef.current ?? diagram;
-    const dx = (event.clientX - panStart.current.x) / currentView.zoom;
-    const dy = (event.clientY - panStart.current.y) / currentView.zoom;
+    const { scaleX, scaleY } = getSvgMetrics();
+    const dx = ((event.clientX - panStart.current.x) * scaleX) / currentView.zoom;
+    const dy = ((event.clientY - panStart.current.y) * scaleY) / currentView.zoom;
     onChange({
       ...currentDiagram,
       viewSettings: {
@@ -595,16 +634,22 @@ export function DiagramCanvas({
     }, []);
 
     const handleIbdCanvasPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
-      if ((event.target as globalThis.Element | null)?.closest('.diagram-node')) return;
-      event.preventDefault();
-      onSelectNodes?.([]);
-      onSelectElement?.(undefined);
-      onSelectRelationship?.(undefined);
-      const isPan = event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey;
-      if (isPan) {
-        startPan(event);
-      }
-    };
+    if ((event.target as globalThis.Element | null)?.closest('.diagram-node')) return;
+    event.preventDefault();
+    onSelectNodes?.([]);
+    onSelectElement?.(undefined);
+    onSelectRelationship?.(undefined);
+    const isPan =
+      event.button === 1 ||
+      event.button !== 0 ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      spacePanActive.current;
+    if (isPan) {
+      startPan(event);
+    }
+  };
 
     const frameSelected = selection?.kind === 'element' && selection.id === diagram.contextBlockId;
 
@@ -710,6 +755,8 @@ export function DiagramCanvas({
                 .filter((node) => (node.kind ?? (node.placement ? 'Port' : 'Element')) === 'Part')
                 .map((node) => {
                   const element = elements[node.elementId];
+                  const accent = accentForMetaclass(element?.metaclass ?? 'Part');
+                  const accentStyle = { '--node-accent': accent } as React.CSSProperties;
                   const typeName = element?.typeId
                     ? elements[element.typeId]?.name ?? 'Unknown type'
                     : 'Unspecified type';
@@ -724,6 +771,7 @@ export function DiagramCanvas({
                       className={`diagram-node diagram-node--part${isSelected ? ' diagram-node--selected' : ''}${
                         missing ? ' diagram-node--missing' : ''
                       }`}
+                      style={accentStyle}
                       onPointerDown={(event) => handlePointerDown(event, node.id)}
                       onContextMenu={(event) => {
                         event.preventDefault();
@@ -737,6 +785,7 @@ export function DiagramCanvas({
                       }}
                     >
                       <rect width={node.w} height={node.h} rx={8} ry={8} />
+                      <rect className="diagram-node__accent" width={node.w} height={6} rx={6} ry={6} />
                       <text x={12} y={24} className="diagram-node__title">
                         {label}
                       </text>
@@ -752,6 +801,7 @@ export function DiagramCanvas({
                   const element = elements[node.elementId];
                   const position = portPositions.get(node.id);
                   if (!position) return null;
+                  const accent = accentForMetaclass(element?.metaclass ?? 'Port');
                   const owner = element?.ownerId ? elements[element.ownerId] : undefined;
                   const isSelected =
                     selectedNodeIds.includes(node.id) || (selection?.kind === 'element' && element?.id === selection.id);
@@ -759,12 +809,16 @@ export function DiagramCanvas({
                   const portClass = `diagram-node diagram-node--port${isSelected ? ' diagram-node--selected' : ''}${
                     isPartPort ? ' diagram-node--part-port' : ' diagram-node--block-port'
                   }`;
+                  const portStyle = {
+                    '--node-accent': accent,
+                    cursor: draggingPortId === node.id ? 'grabbing' : 'grab',
+                  } as React.CSSProperties;
                   return (
                     <g
                       key={node.id}
                       className={portClass}
                       onPointerDown={(event) => handlePortPointerDown(event, node.id)}
-                      style={{ cursor: draggingPortId === node.id ? 'grabbing' : 'grab' }}
+                      style={portStyle}
                     >
                       {isPartPort ? (
                         <rect x={position.x - 7} y={position.y - 7} width={14} height={14} rx={3} ry={3} />
@@ -848,6 +902,8 @@ export function DiagramCanvas({
             })}
             {diagram.nodes.map((node) => {
               const element = elements[node.elementId];
+              const accent = accentForMetaclass(element?.metaclass);
+              const accentStyle = { '--node-accent': accent } as React.CSSProperties;
               const missing = !element;
               const isSelected = selectedNodeIds.includes(node.id) || (selection?.kind === 'element' && element?.id === selection.id);
               const selectedRelationship =
@@ -864,9 +920,11 @@ export function DiagramCanvas({
                   className={`diagram-node${isSelected ? ' diagram-node--selected' : ''}${
                     missing ? ' diagram-node--missing' : ''
                   }${isRelated ? ' diagram-node--related' : ''}`}
+                  style={accentStyle}
                   onPointerDown={(event) => handlePointerDown(event, node.id)}
                 >
                   <rect width={node.w} height={node.h} rx={8} ry={8} />
+                  <rect className="diagram-node__accent" width={node.w} height={6} rx={6} ry={6} />
                   <text x={12} y={24} className="diagram-node__title">
                     {element?.name ?? 'Missing element'}
                   </text>
@@ -876,21 +934,21 @@ export function DiagramCanvas({
                 </g>
               );
             })}
+            {marquee ? (
+              <rect
+                className="diagram-marquee"
+                x={marquee.x}
+                y={marquee.y}
+                width={marquee.w}
+                height={marquee.h}
+              />
+            ) : null}
           </g>
           <defs>
             <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
               <path d="M0,0 L0,6 L9,3 z" fill="#4f46e5" />
             </marker>
           </defs>
-          {marquee && (
-            <rect
-              className="diagram-marquee"
-              x={marquee.x * view.zoom + view.panX * view.zoom}
-              y={marquee.y * view.zoom + view.panY * view.zoom}
-              width={marquee.w * view.zoom}
-              height={marquee.h * view.zoom}
-            />
-          )}
         </svg>
       </div>
     </div>
