@@ -12,6 +12,11 @@ interface ModelBrowserProps {
   search: string;
   onSearch: (value: string) => void;
   selectedId?: string;
+  renamingId?: string;
+  renameDraft?: string;
+  onRenameChange?: (value: string) => void;
+  onRenameSubmit?: (value: string) => void;
+  onRenameCancel?: () => void;
   onSelect: (id: string) => void;
   onCreatePackage: () => void;
   onCreateBlock: () => void;
@@ -27,6 +32,11 @@ export function ModelBrowser({
   search,
   onSearch,
   selectedId,
+  renamingId,
+  renameDraft,
+  onRenameChange,
+  onRenameSubmit,
+  onRenameCancel,
   onSelect,
   onCreatePackage,
   onCreateBlock,
@@ -55,6 +65,7 @@ export function ModelBrowser({
       <ul className="tree">
         {nodes.map((node) => {
           const isSelected = node.element.id === selectedId;
+          const isRenaming = node.element.id === renamingId;
           const handleDragStart = (event: React.DragEvent) => {
             event.dataTransfer.effectAllowed = 'copy';
             event.dataTransfer.setData(
@@ -64,19 +75,42 @@ export function ModelBrowser({
           };
           return (
             <li key={node.element.id}>
-              <button
-                className={`tree__item${isSelected ? ' tree__item--selected' : ''}`}
-                onClick={() => onSelect(node.element.id)}
-                draggable
-                onDragStart={handleDragStart}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  onContextMenu?.(node.element, { x: event.clientX, y: event.clientY });
-                }}
-              >
-                <span className="tree__title">{node.element.name}</span>
-                <span className="tree__meta">{node.element.metaclass}</span>
-              </button>
+              {isRenaming ? (
+                <div className={`tree__item${isSelected ? ' tree__item--selected' : ''}`}>
+                  <input
+                    className="tree__rename"
+                    value={renameDraft ?? ''}
+                    onChange={(event) => onRenameChange?.(event.target.value)}
+                    onBlur={() => onRenameCancel?.()}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onRenameSubmit?.(renameDraft ?? '');
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault();
+                        onRenameCancel?.();
+                      }
+                    }}
+                    autoFocus
+                  />
+                  <span className="tree__meta">{node.element.metaclass}</span>
+                </div>
+              ) : (
+                <button
+                  className={`tree__item${isSelected ? ' tree__item--selected' : ''}`}
+                  onClick={() => onSelect(node.element.id)}
+                  draggable
+                  onDragStart={handleDragStart}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    onContextMenu?.(node.element, { x: event.clientX, y: event.clientY });
+                  }}
+                >
+                  <span className="tree__title">{node.element.name}</span>
+                  <span className="tree__meta">{node.element.metaclass}</span>
+                </button>
+              )}
               {node.children.length > 0 ? renderNodes(node.children) : null}
             </li>
           );

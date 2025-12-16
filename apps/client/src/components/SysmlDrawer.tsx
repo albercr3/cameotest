@@ -10,6 +10,9 @@ interface SysmlDrawerProps {
   preview: string;
   draft: string;
   error?: string | null;
+  pinned?: boolean;
+  onPin?: () => void;
+  onUnpin?: () => void;
   onDraftChange: (value: string) => void;
   onApply: () => void;
   onClose: () => void;
@@ -28,6 +31,9 @@ export function SysmlDrawer({
   preview,
   draft,
   error,
+  pinned,
+  onPin,
+  onUnpin,
   onDraftChange,
   onApply,
   onClose,
@@ -54,10 +60,25 @@ export function SysmlDrawer({
           <p className="code-drawer__subtitle">
             {element ? `${element.metaclass} • ${element.id}` : 'Select an element to inspect or edit its code view.'}
           </p>
+          {pinned ? (
+            <div className="code-drawer__banner code-drawer__banner--info">
+              <div>Drawer pinned to {element?.name ?? 'selection'}.</div>
+              <div className="code-drawer__banner-actions">
+                <button type="button" className="button button--ghost" onClick={onUnpin}>
+                  Unpin
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
-        <button type="button" className="button button--ghost" onClick={onClose}>
-          Close
-        </button>
+        <div className="code-drawer__header-actions">
+          <button type="button" className="button button--ghost" onClick={onClose}>
+            Close
+          </button>
+          <button type="button" className="button button--ghost" onClick={pinned ? onUnpin : onPin} disabled={!element}>
+            {pinned ? 'Unpin' : 'Pin'}
+          </button>
+        </div>
       </div>
       <div className="code-drawer__body">
         {showPending ? (
