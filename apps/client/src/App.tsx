@@ -116,6 +116,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [modelRevision, setModelRevision] = useState(0);
   const [activeDiagramId, setActiveDiagramId] = useState<string | undefined>();
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
   const [loadingExample, setLoadingExample] = useState(false);
@@ -133,8 +134,12 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [diagramMenuOpen, setDiagramMenuOpen] = useState(false);
   const [codeDrawerOpen, setCodeDrawerOpen] = useState(false);
+  const [drawerSelectedElementId, setDrawerSelectedElementId] = useState<string | null>(null);
+  const [codeBaseSnippet, setCodeBaseSnippet] = useState('');
   const [codeDraft, setCodeDraft] = useState('');
   const [codeError, setCodeError] = useState<string | null>(null);
+  const [pendingDrawerSwitchId, setPendingDrawerSwitchId] = useState<string | null | undefined>(undefined);
+  const [externalModelChange, setExternalModelChange] = useState(false);
   const [propertiesCollapsed, setPropertiesCollapsed] = useState(false);
   const pendingHistory = useRef(new Map<string, HistoryEntry>());
   const addOffset = useRef(0);
@@ -157,11 +162,16 @@ export default function App() {
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        close();
+      }
+    };
     window.addEventListener('click', close);
-    window.addEventListener('contextmenu', close);
+    window.addEventListener('keydown', handleKey);
     return () => {
       window.removeEventListener('click', close);
-      window.removeEventListener('contextmenu', close);
+      window.removeEventListener('keydown', handleKey);
     };
   }, [contextMenu]);
 
@@ -233,6 +243,7 @@ export default function App() {
         setRedoStack([]);
         setDirty(true);
         setAutosaveError(null);
+        setModelRevision((revision) => revision + 1);
         return next;
       });
     },
@@ -267,12 +278,17 @@ export default function App() {
     setSelectedNodeIds([]);
     setActiveDiagramId(undefined);
     setDirty(false);
+    setModelRevision(0);
     setHistory([]);
     setRedoStack([]);
     setAutosaveError(null);
     setBanner(null);
     setStatus('Ready');
     setCodeDrawerOpen(false);
+    setDrawerSelectedElementId(null);
+    setPendingDrawerSwitchId(undefined);
+    setExternalModelChange(false);
+    setCodeBaseSnippet('');
     setCodeDraft('');
     setCodeError(null);
     setPropertiesCollapsed(false);
@@ -312,8 +328,10 @@ export default function App() {
         setHistory([]);
         setRedoStack([]);
         setDirty(false);
+        setModelRevision(0);
         setLastSavedAt(validated.manifest.updatedAt ?? null);
         setAutosaveError(null);
+        setExternalModelChange(false);
         const firstElement = validated.model.elements[0]?.id;
         setSelection(firstElement ? { kind: 'element', id: firstElement } : undefined);
         const firstDiagramNode = normalizedDiagrams[0]?.nodes[0];
@@ -366,28 +384,104 @@ export default function App() {
     return roots;
   }, [payload]);
 
+  const clampMenuPosition = useCallback((x: number, y: number) => {
+    if (typeof window === 'undefined') return { x, y };
+    const margin = 8;
+    const width = 280;
+    const height = 340;
+    const clampedX = Math.min(Math.max(x, margin), Math.max(margin, window.innerWidth - width - margin));
+    const clampedY = Math.min(Math.max(y, margin), Math.max(margin, window.innerHeight - height - margin));
+    return { x: clampedX, y: clampedY };
+  }, []);
+
   const handleTreeContextMenu = (element: Element, clientPosition: { x: number; y: number }) => {
-    setContextMenu({ kind: 'tree', x: clientPosition.x, y: clientPosition.y, elementId: element.id });
+    const position = clampMenuPosition(clientPosition.x, clientPosition.y);
+    setContextMenu({ kind: 'tree', x: position.x, y: position.y, elementId: element.id });
   };
+
+  const elementsById = useMemo(() => {
+    if (!payload) return {} as Record<string, Element>;
+    return payload.model.elements.reduce<Record<string, Element>>((acc, element) => {
+      acc[element.id] = element;
+      return acc;
+    }, {});
+  }, [payload]);
 
   const selectedElement = useMemo(() => {
     if (!payload || !selection || selection.kind !== 'element') return undefined;
-    return payload.model.elements.find((el) => el.id === selection.id);
-  }, [payload, selection]);
+    return elementsById[selection.id];
+  }, [elementsById, payload, selection]);
 
   const selectedRelationship = useMemo(() => {
     if (!payload || !selection || selection.kind !== 'relationship') return undefined;
     return payload.model.relationships.find((rel) => rel.id === selection.id);
   }, [payload, selection]);
 
-  useEffect(() => {
-    if (selectedElement) {
-      setCodeDraft(editableSnippetForElement(selectedElement));
-    } else {
-      setCodeDraft('');
-    }
+  const selectedElementId = selection?.kind === 'element' ? selection.id : undefined;
+  const drawerSelectedElement = drawerSelectedElementId ? elementsById[drawerSelectedElementId] : undefined;
+  const pendingDrawerSelection =
+    pendingDrawerSwitchId === undefined
+      ? undefined
+      : pendingDrawerSwitchId === null
+        ? null
+        : elementsById[pendingDrawerSwitchId];
+  const isCodeDirty = codeDraft !== codeBaseSnippet;
+
+  const syncDrawerFromElement = useCallback(
+    (element?: Element | null) => {
+      const snippet = element ? editableSnippetForElement(element) : '';
+      setCodeBaseSnippet(snippet);
+      setCodeDraft(snippet);
+      setCodeError(null);
+      setExternalModelChange(false);
+    },
+    [],
+  );
+
+  const openCodeDrawerForElement = useCallback(
+    (elementId?: string | null) => {
+      const targetElement = elementId ? elementsById[elementId] : undefined;
+      setDrawerSelectedElementId(targetElement?.id ?? null);
+      syncDrawerFromElement(targetElement);
+      setPendingDrawerSwitchId(undefined);
+      setCodeDrawerOpen(true);
+      if (elementId) {
+        selectElement(elementId);
+      }
+    },
+    [elementsById, selectElement, syncDrawerFromElement],
+  );
+
+  const openCodeDrawer = useCallback(() => {
+    openCodeDrawerForElement(selectedElementId);
+  }, [openCodeDrawerForElement, selectedElementId]);
+
+  const closeCodeDrawer = useCallback(() => {
+    setCodeDrawerOpen(false);
+    setPendingDrawerSwitchId(undefined);
+    setDrawerSelectedElementId(null);
     setCodeError(null);
-  }, [selectedElement]);
+    setExternalModelChange(false);
+  }, []);
+
+  useEffect(() => {
+    if (!codeDrawerOpen) return;
+    const nextSelectionId = selectedElementId ?? null;
+    if (nextSelectionId === drawerSelectedElementId) {
+      setPendingDrawerSwitchId(undefined);
+      return;
+    }
+    if (!isCodeDirty) {
+      const nextElement = nextSelectionId ? elementsById[nextSelectionId] : undefined;
+      setDrawerSelectedElementId(nextSelectionId);
+      syncDrawerFromElement(nextElement);
+      setPendingDrawerSwitchId(undefined);
+    } else {
+      setPendingDrawerSwitchId(nextSelectionId);
+    }
+  }, [codeDrawerOpen, drawerSelectedElementId, elementsById, isCodeDirty, selectedElementId, syncDrawerFromElement]);
+
+  useEffect(() => setCodeError(null), [codeDraft]);
 
   const activeDiagram: Diagram | undefined = useMemo(() => {
     if (!payload || !activeDiagramId) return undefined;
@@ -402,14 +496,6 @@ export default function App() {
       setSelection((current) => current ?? { kind: 'element', id: activeDiagram.nodes[0].elementId });
     }
   }, [activeDiagram, selection]);
-
-  const elementsById = useMemo(() => {
-    if (!payload) return {} as Record<string, Element>;
-    return payload.model.elements.reduce<Record<string, Element>>((acc, element) => {
-      acc[element.id] = element;
-      return acc;
-    }, {});
-  }, [payload]);
 
   const relationshipsById = useMemo(() => {
     if (!payload) return {} as Record<string, Relationship>;
@@ -474,7 +560,6 @@ export default function App() {
     };
   }, [payload]);
 
-  const selectedElementId = selection?.kind === 'element' ? selection.id : undefined;
   const selectedRelationshipId = selection?.kind === 'relationship' ? selection.id : undefined;
   const propertiesSubtitle =
     selectedElement?.name ??
@@ -512,15 +597,35 @@ export default function App() {
     ((isIbdDiagram(activeDiagram) && (canAddPortToIbd || canAddPartToIbd)) || isBddDiagram(activeDiagram))
   );
 
-  const relatedRelationships = useMemo(() => {
-    if (!payload || !selectedElement) return [] as Relationship[];
-    const target = new Set([selectedElement.id]);
-    return payload.model.relationships.filter((rel) => relationshipTouchesElements(rel, target));
-  }, [payload, selectedElement]);
+  const relationshipTouchesElements = useCallback((rel: Relationship, ids: Set<string>) => {
+    if (rel.type === 'Connector') {
+      return ids.has(rel.sourcePortId) || ids.has(rel.targetPortId);
+    }
+    return ids.has(rel.sourceId) || ids.has(rel.targetId);
+  }, []);
+
+  const relationshipsForElement = useCallback(
+    (element?: Element | null) => {
+      if (!payload || !element) return [] as Relationship[];
+      const target = new Set([element.id]);
+      return payload.model.relationships.filter((rel) => relationshipTouchesElements(rel, target));
+    },
+    [payload, relationshipTouchesElements],
+  );
+
+  const relatedRelationships = useMemo(
+    () => relationshipsForElement(selectedElement),
+    [relationshipsForElement, selectedElement],
+  );
+
+  const drawerRelatedRelationships = useMemo(
+    () => relationshipsForElement(drawerSelectedElement),
+    [drawerSelectedElement, relationshipsForElement],
+  );
 
   const sysmlPreview = useMemo(
-    () => generateSysmlPreview(selectedElement, relatedRelationships, elementsById),
-    [elementsById, relatedRelationships, selectedElement],
+    () => generateSysmlPreview(drawerSelectedElement, drawerRelatedRelationships, elementsById),
+    [drawerRelatedRelationships, drawerSelectedElement, elementsById],
   );
 
   const relationshipCreationTypes = useMemo(
@@ -542,28 +647,63 @@ export default function App() {
   };
 
   const applyCodeDraft = () => {
-    if (!selectedElement) return;
-    try {
-      const parsed = parseEditableSnippet(codeDraft);
-      updateElement(selectedElement.id, {
-        name: parsed.name,
-        documentation: parsed.doc,
-        stereotypes: parsed.stereotypes,
-        tags: parsed.tags,
-      });
-      setCodeError(null);
-      showToast('Applied code edits to model', 'info');
-    } catch (error) {
-      setCodeError(error instanceof Error ? error.message : String(error));
+    if (drawerSelectedElementId && !elementsById[drawerSelectedElementId]) {
+      setCodeError('Element was removed. Discard edits or switch selection.');
+      return;
+    }
+    if (!drawerSelectedElement) {
+      setCodeError('Select an element to apply changes.');
+      return;
+    }
+    if (!draftParsed) {
+      setCodeError(draftParseError ?? 'Unable to parse snippet.');
+      return;
+    }
+
+    const updates: Partial<Element> = {
+      name: draftParsed.name,
+      documentation: draftParsed.doc,
+      stereotypes: draftParsed.stereotypes,
+      tags: draftParsed.tags,
+    };
+    const nextSnippet = editableSnippetForElement({ ...drawerSelectedElement, ...updates });
+    updateElement(drawerSelectedElement.id, updates);
+    setCodeBaseSnippet(nextSnippet);
+    setCodeDraft(nextSnippet);
+    setCodeError(null);
+    setExternalModelChange(false);
+    setPendingDrawerSwitchId(undefined);
+    showToast('Applied code edits to model', 'info');
+  };
+
+  const requestCloseCodeDrawer = useCallback(() => {
+    if (isCodeDirty && !window.confirm('Discard unsaved code edits?')) {
+      return;
+    }
+    closeCodeDrawer();
+  }, [closeCodeDrawer, isCodeDirty]);
+
+  const toggleCodeDrawer = () => {
+    if (codeDrawerOpen) {
+      requestCloseCodeDrawer();
+    } else {
+      openCodeDrawer();
     }
   };
 
-  const toggleCodeDrawer = () => {
-    if (selectedElement && !codeDrawerOpen) {
-      setCodeDraft(editableSnippetForElement(selectedElement));
-    }
-    setCodeError(null);
-    setCodeDrawerOpen((open) => !open);
+  const discardAndSwitchDrawer = () => {
+    const nextSelectionId = pendingDrawerSwitchId ?? null;
+    const nextElement = nextSelectionId ? elementsById[nextSelectionId] : undefined;
+    setDrawerSelectedElementId(nextSelectionId);
+    syncDrawerFromElement(nextElement);
+    setPendingDrawerSwitchId(undefined);
+  };
+
+  const keepEditingDrawer = () => setPendingDrawerSwitchId(undefined);
+
+  const reloadDraftFromModel = () => {
+    if (!drawerSelectedElement) return;
+    syncDrawerFromElement(drawerSelectedElement);
   };
 
   const updateDiagram = (
@@ -604,13 +744,6 @@ export default function App() {
       next = `${base}${suffix}`;
     }
     return next;
-  };
-
-  const relationshipTouchesElements = (rel: Relationship, ids: Set<string>) => {
-    if (rel.type === 'Connector') {
-      return ids.has(rel.sourcePortId) || ids.has(rel.targetPortId);
-    }
-    return ids.has(rel.sourceId) || ids.has(rel.targetId);
   };
 
   const dedupeWorkspaceName = useCallback(
@@ -719,6 +852,51 @@ export default function App() {
     }
     return result;
   };
+
+  const drawerCanonicalSnippet = useMemo(
+    () => (drawerSelectedElement ? editableSnippetForElement(drawerSelectedElement) : ''),
+    [drawerSelectedElement],
+  );
+
+  const draftParse = useMemo(() => {
+    if (!drawerSelectedElement) {
+      return { parsed: null, error: null } as const;
+    }
+    try {
+      return { parsed: parseEditableSnippet(codeDraft), error: null } as const;
+    } catch (error) {
+      return { parsed: null, error: error instanceof Error ? error.message : String(error) } as const;
+    }
+  }, [codeDraft, drawerSelectedElement]);
+
+  const draftParsed = draftParse.parsed;
+  const draftParseError = draftParse.error;
+  const drawerError = codeError ?? draftParseError;
+  const canApplyCodeDraft = !!(drawerSelectedElement && isCodeDirty && !draftParseError && !codeError);
+
+  useEffect(() => {
+    if (!codeDrawerOpen) return;
+    if (!drawerSelectedElement) {
+      setExternalModelChange(false);
+      return;
+    }
+
+    if (isCodeDirty) {
+      setExternalModelChange(drawerCanonicalSnippet !== codeBaseSnippet);
+    } else if (drawerCanonicalSnippet !== codeBaseSnippet) {
+      syncDrawerFromElement(drawerSelectedElement);
+    } else {
+      setExternalModelChange(false);
+    }
+  }, [
+    codeBaseSnippet,
+    codeDrawerOpen,
+    drawerCanonicalSnippet,
+    drawerSelectedElement,
+    isCodeDirty,
+    modelRevision,
+    syncDrawerFromElement,
+  ]);
 
   const createWorkspace = async () => {
     try {
@@ -1299,7 +1477,8 @@ export default function App() {
     clientY: number;
     position: { x: number; y: number };
   }) => {
-    setContextMenu({ kind: 'canvas', x: payload.clientX, y: payload.clientY, position: payload.position });
+    const position = clampMenuPosition(payload.clientX, payload.clientY);
+    setContextMenu({ kind: 'canvas', x: position.x, y: position.y, position: payload.position });
   };
 
   const handlePartContextMenu = (payload: {
@@ -1308,10 +1487,11 @@ export default function App() {
     clientY: number;
     position: { x: number; y: number };
   }) => {
+    const position = clampMenuPosition(payload.clientX, payload.clientY);
     setContextMenu({
       kind: 'part',
-      x: payload.clientX,
-      y: payload.clientY,
+      x: position.x,
+      y: position.y,
       elementId: payload.elementId,
       position: payload.position,
     });
@@ -1795,6 +1975,10 @@ export default function App() {
       if (!target) return null;
       const ownerForElements =
         target.metaclass === 'Package' ? target.id : selectContainerId(target.id ?? undefined);
+      const canCreatePackage = target.metaclass === 'Package';
+      const canCreateBlock = target.metaclass === 'Package' || target.metaclass === 'Block';
+      const canCreatePart = target.metaclass === 'Block';
+      const canCreatePort = target.metaclass === 'Block' || target.metaclass === 'Part';
       const createPackage = () => {
         createElement('Package', target.metaclass === 'Package' ? target.id : ownerForElements);
         setContextMenu(null);
@@ -1838,11 +2022,40 @@ export default function App() {
           belongsToContextBlock(target, activeDiagram.contextBlockId) &&
           (target.metaclass === 'Part' || target.metaclass === 'Port')) ||
           isBddDiagram(activeDiagram));
+      const addDisabledReason = !activeDiagram
+        ? 'Open a diagram first'
+        : !canAddTargetToDiagram
+          ? 'Not compatible with this diagram'
+          : '';
       const addTargetToDiagram = () => {
         addToDiagram(target.id);
         setContextMenu(null);
       };
+      const openTargetProperties = () => {
+        selectElement(target.id);
+        setContextMenu(null);
+      };
+      const openTargetInDrawer = () => {
+        openCodeDrawerForElement(target.id);
+        setContextMenu(null);
+      };
+      const renameTarget = () => {
+        const next = window.prompt('Rename element', target.name)?.trim();
+        if (next) {
+          updateElement(target.id, { name: next });
+        }
+        setContextMenu(null);
+      };
+      const childCount = payload?.model.elements.filter((el) => el.ownerId === target.id).length ?? 0;
+      const relationshipCount = relationshipsForElement(target).length;
+      const deleteMessage =
+        childCount || relationshipCount
+          ? `Delete ${target.name}? This will remove ${childCount} child elements and ${relationshipCount} relationships.`
+          : `Delete ${target.name}?`;
       const removeTarget = () => {
+        if (childCount || relationshipCount) {
+          if (!window.confirm(deleteMessage)) return;
+        }
         deleteElement(target.id);
         setContextMenu(null);
       };
@@ -1854,53 +2067,74 @@ export default function App() {
         >
           <div className="context-menu__title">{target.name}</div>
           <div className="context-menu__group">
-            <button type="button" onClick={createPackage} className="context-menu__item">
-              Create package
-            </button>
-            <button type="button" onClick={createBlock} className="context-menu__item">
-              Create block
-            </button>
+            <div className="context-menu__label">Create</div>
+            {canCreatePackage ? (
+              <button type="button" onClick={createPackage} className="context-menu__item">
+                Package
+              </button>
+            ) : null}
+            {canCreateBlock ? (
+              <button type="button" onClick={createBlock} className="context-menu__item">
+                Block
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={createPartHere}
               className="context-menu__item"
-              disabled={target.metaclass !== 'Block'}
+              disabled={!canCreatePart}
+              title={canCreatePart ? '' : 'Parts must belong to a Block'}
             >
-              Create part
+              Part
             </button>
             <button
               type="button"
               onClick={createPortHere}
               className="context-menu__item"
-              disabled={target.metaclass !== 'Block' && target.metaclass !== 'Part'}
+              disabled={!canCreatePort}
+              title={canCreatePort ? '' : 'Ports belong to Blocks or Parts'}
             >
-              Create port
+              Port
             </button>
-          </div>
-          <div className="context-menu__group">
+            <div className="context-menu__divider" />
             <button type="button" onClick={createTreeBdd} className="context-menu__item">
-              Create BDD diagram
+              BDD Diagram
             </button>
             <button
               type="button"
               onClick={createTreeIbd}
               className="context-menu__item"
               disabled={target.metaclass !== 'Block'}
+              title={target.metaclass === 'Block' ? '' : 'IBDs require a Block context'}
             >
-              Create IBD diagram
+              IBD Diagram
             </button>
           </div>
           <div className="context-menu__group">
+            <div className="context-menu__label">Diagram</div>
             <button
               type="button"
               onClick={addTargetToDiagram}
               className="context-menu__item"
               disabled={!canAddTargetToDiagram}
+              title={addDisabledReason}
             >
               Add to current diagram
             </button>
+            <button type="button" onClick={openTargetProperties} className="context-menu__item">
+              Open in properties
+            </button>
+            <button type="button" onClick={openTargetInDrawer} className="context-menu__item">
+              Show in code drawer
+            </button>
+          </div>
+          <div className="context-menu__group">
+            <div className="context-menu__label">Edit</div>
+            <button type="button" onClick={renameTarget} className="context-menu__item">
+              Rename
+            </button>
             <button type="button" onClick={removeTarget} className="context-menu__item context-menu__item--danger">
-              Delete element
+              Delete
             </button>
           </div>
         </div>
@@ -1929,8 +2163,9 @@ export default function App() {
         >
           <div className="context-menu__title">{target.name}</div>
           <div className="context-menu__group">
+            <div className="context-menu__label">Create</div>
             <button type="button" onClick={addPortHere} className="context-menu__item">
-              Add Port here
+              Add port here
             </button>
           </div>
         </div>
@@ -1972,6 +2207,20 @@ export default function App() {
         resetActiveRouting();
         setContextMenu(null);
       };
+      const toggleGrid = () => {
+        updateDiagram(activeDiagram.id, {
+          ...activeDiagram,
+          viewSettings: { ...activeDiagram.viewSettings, gridEnabled: !activeDiagram.viewSettings.gridEnabled },
+        });
+        setContextMenu(null);
+      };
+      const toggleSnap = () => {
+        updateDiagram(activeDiagram.id, {
+          ...activeDiagram,
+          viewSettings: { ...activeDiagram.viewSettings, snapEnabled: !activeDiagram.viewSettings.snapEnabled },
+        });
+        setContextMenu(null);
+      };
       return (
         <div
           className="context-menu"
@@ -1979,14 +2228,39 @@ export default function App() {
           onClick={(event) => event.stopPropagation()}
         >
           <div className="context-menu__group">
+            <div className="context-menu__label">Create here…</div>
             <button type="button" onClick={createHere} className="context-menu__item">
-              {isBddDiagram(activeDiagram) ? 'Create block here' : 'Create part here'}
+              {isBddDiagram(activeDiagram) ? 'Block' : 'Part'}
             </button>
-            <button type="button" onClick={pasteHere} className="context-menu__item" disabled={!canPasteHere}>
+          </div>
+          <div className="context-menu__group">
+            <div className="context-menu__label">Clipboard</div>
+            <button
+              type="button"
+              onClick={pasteHere}
+              className="context-menu__item"
+              disabled={!canPasteHere}
+              title={canPasteHere ? '' : 'Copy something to paste'}
+            >
               Paste
             </button>
-            <button type="button" onClick={resetHere} className="context-menu__item" disabled={!canResetRouting}>
+          </div>
+          <div className="context-menu__group">
+            <div className="context-menu__label">View</div>
+            <button
+              type="button"
+              onClick={resetHere}
+              className="context-menu__item"
+              disabled={!canResetRouting}
+              title={canResetRouting ? '' : 'No routed edges to reset'}
+            >
               Reset routing
+            </button>
+            <button type="button" onClick={toggleGrid} className="context-menu__item">
+              {activeDiagram.viewSettings.gridEnabled ? 'Hide grid' : 'Show grid'}
+            </button>
+            <button type="button" onClick={toggleSnap} className="context-menu__item">
+              {activeDiagram.viewSettings.snapEnabled ? 'Disable snap' : 'Enable snap'}
             </button>
           </div>
         </div>
@@ -2122,7 +2396,7 @@ export default function App() {
                       type="button"
                       className="button button--ghost"
                       onClick={toggleCodeDrawer}
-                      disabled={!selectedElement}
+                      disabled={!payload}
                     >
                       {codeDrawerOpen ? 'Hide code' : 'Code'}
                     </button>
@@ -2342,16 +2616,20 @@ export default function App() {
       )}
         <SysmlDrawer
           open={codeDrawerOpen}
-          element={selectedElement}
+          element={drawerSelectedElement}
+          dirty={isCodeDirty}
+          canApply={canApplyCodeDraft}
+          externalChange={externalModelChange}
+          pendingElement={pendingDrawerSelection}
           preview={sysmlPreview}
           draft={codeDraft}
-          error={codeError}
+          error={drawerError}
           onDraftChange={setCodeDraft}
           onApply={applyCodeDraft}
-          onClose={() => {
-            setCodeDrawerOpen(false);
-            setCodeError(null);
-          }}
+          onClose={requestCloseCodeDrawer}
+          onKeepEditing={keepEditingDrawer}
+          onDiscardAndSwitch={discardAndSwitchDrawer}
+          onReloadFromModel={reloadDraftFromModel}
         />
       </div>
     </ErrorBoundary>

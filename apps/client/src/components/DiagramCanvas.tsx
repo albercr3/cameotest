@@ -61,8 +61,10 @@ export function DiagramCanvas({
     | null
   >(null);
   const portDragMoved = useRef(false);
+  const pointerCapture = useRef<{ id: number; target: globalThis.Element | null } | null>(null);
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [draggingPortId, setDraggingPortId] = useState<string | null>(null);
+  const [isDropActive, setIsDropActive] = useState(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const nodesById = useMemo(() => {
@@ -80,6 +82,12 @@ export function DiagramCanvas({
     diagramRef.current = diagram;
     viewRef.current = diagram.viewSettings;
   }, [diagram]);
+
+  useEffect(() => {
+    const onPointerCancel = (event: PointerEvent) => releasePointerCapture(event.pointerId);
+    window.addEventListener('pointercancel', onPointerCancel);
+    return () => window.removeEventListener('pointercancel', onPointerCancel);
+  }, []);
 
   const toDiagramPoint = (
     event: React.PointerEvent | PointerEvent | React.DragEvent | React.MouseEvent,
@@ -124,8 +132,22 @@ export function DiagramCanvas({
     panStart.current = { x: event.clientX, y: event.clientY, panX: currentView.panX, panY: currentView.panY };
     const target = svgRef.current;
     target?.setPointerCapture(event.pointerId);
+    pointerCapture.current = { id: event.pointerId, target: target ?? null };
     window.addEventListener('pointermove', handleCanvasPointerMove);
     window.addEventListener('pointerup', handleCanvasPointerUp);
+  };
+
+  const releasePointerCapture = (pointerId?: number) => {
+    const capture = pointerCapture.current;
+    const releaseTarget = capture?.target;
+    if (releaseTarget && 'releasePointerCapture' in releaseTarget && typeof releaseTarget.releasePointerCapture === 'function') {
+      try {
+        releaseTarget.releasePointerCapture(pointerId ?? capture.id);
+      } catch {
+        /* ignore */
+      }
+    }
+    pointerCapture.current = null;
   };
 
   const handlePointerDown = (event: React.PointerEvent, nodeId: string) => {
@@ -152,6 +174,7 @@ export function DiagramCanvas({
     }
     const target = event.currentTarget as SVGGElement | null;
     target?.setPointerCapture(event.pointerId);
+    pointerCapture.current = { id: event.pointerId, target };
     nodeDragKey.current = crypto.randomUUID();
     nodeDragMoved.current = false;
     dragStart.current = {
@@ -178,7 +201,7 @@ export function DiagramCanvas({
     });
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (event: PointerEvent) => {
     if (nodeDragMoved.current && nodeDragKey.current) {
       const latestDiagram = diagramRef.current ?? diagram;
       onChange(latestDiagram, { historyKey: nodeDragKey.current });
@@ -186,6 +209,7 @@ export function DiagramCanvas({
     nodeDragKey.current = null;
     nodeDragMoved.current = false;
     dragStart.current = null;
+    releasePointerCapture(event.pointerId);
     window.removeEventListener('pointermove', handlePointerMove);
     window.removeEventListener('pointerup', handlePointerUp);
   };
@@ -204,6 +228,7 @@ export function DiagramCanvas({
     const startPoint = toDiagramPoint(event);
     const target = event.currentTarget;
     target?.setPointerCapture(event.pointerId);
+    pointerCapture.current = { id: event.pointerId, target };
     marqueeStart.current = startPoint;
     setMarquee({ x: startPoint.x, y: startPoint.y, w: 0, h: 0 });
     window.addEventListener('pointermove', handleMarqueePointerMove);
@@ -226,8 +251,9 @@ export function DiagramCanvas({
     });
   };
 
-  const handleCanvasPointerUp = () => {
+  const handleCanvasPointerUp = (event: PointerEvent) => {
     panStart.current = null;
+    releasePointerCapture(event.pointerId);
     window.removeEventListener('pointermove', handleCanvasPointerMove);
     window.removeEventListener('pointerup', handleCanvasPointerUp);
   };
@@ -242,7 +268,7 @@ export function DiagramCanvas({
     setMarquee({ x, y, w, h });
   };
 
-  const handleMarqueePointerUp = () => {
+  const handleMarqueePointerUp = (event: PointerEvent) => {
     if (marquee) {
       const selected = diagram.nodes
         .filter((node) =>
@@ -260,6 +286,7 @@ export function DiagramCanvas({
     }
     marqueeStart.current = null;
     setMarquee(null);
+    releasePointerCapture(event.pointerId);
     window.removeEventListener('pointermove', handleMarqueePointerMove);
     window.removeEventListener('pointerup', handleMarqueePointerUp);
   };
@@ -284,14 +311,21 @@ export function DiagramCanvas({
   };
 
   const handleDragOver = (event: React.DragEvent) => {
-    if (!event.dataTransfer.types.includes(ELEMENT_DRAG_MIME)) return;
+    if (!event.dataTransfer.types.includes(ELEMENT_DRAG_MIME)) {
+      setIsDropActive(false);
+      return;
+    }
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
+    setIsDropActive(true);
   };
+
+  const handleDragLeave = () => setIsDropActive(false);
 
   const handleDrop = (event: React.DragEvent) => {
     if (!event.dataTransfer.types.includes(ELEMENT_DRAG_MIME)) return;
     event.preventDefault();
+    setIsDropActive(false);
     const payloadText = event.dataTransfer.getData(ELEMENT_DRAG_MIME);
     if (!payloadText) return;
     try {
@@ -474,7 +508,7 @@ export function DiagramCanvas({
       onChange({ ...diagram, nodes: nextNodes }, { transient: true, historyKey: active.historyKey });
     };
 
-    const handlePortPointerUp = () => {
+    const handlePortPointerUp = (event: PointerEvent) => {
       if (portDragRef.current) {
         if (portDragMoved.current) {
           const latestDiagram = diagramRef.current ?? diagram;
@@ -484,6 +518,7 @@ export function DiagramCanvas({
       }
       portDragMoved.current = false;
       setDraggingPortId(null);
+      releasePointerCapture(event.pointerId);
       window.removeEventListener('pointermove', handlePortPointerMove);
       window.removeEventListener('pointerup', handlePortPointerUp);
     };
@@ -501,6 +536,7 @@ export function DiagramCanvas({
       setDraggingPortId(nodeId);
       const target = event.currentTarget as SVGGElement | null;
       target?.setPointerCapture(event.pointerId);
+      pointerCapture.current = { id: event.pointerId, target };
       window.addEventListener('pointermove', handlePortPointerMove);
       window.addEventListener('pointerup', handlePortPointerUp);
     };
@@ -522,15 +558,6 @@ export function DiagramCanvas({
     return (
       <div className="diagram-shell">
         <div className="diagram-controls">
-          <button type="button" className="button" onClick={() => toggleView('gridEnabled')}>
-            {view.gridEnabled ? 'Hide Grid' : 'Show Grid'}
-          </button>
-          <button type="button" className="button" onClick={() => toggleView('snapEnabled')}>
-            {view.snapEnabled ? 'Disable Snap' : 'Enable Snap'}
-          </button>
-          <button type="button" className="button" onClick={resetRouting}>
-            Reset Routing
-          </button>
           <div className="zoom-group">
             <button type="button" className="button" onClick={() => zoomBy(0.9)}>
               −
@@ -540,29 +567,18 @@ export function DiagramCanvas({
               +
             </button>
           </div>
-          <div className="pan-group">
-            <button type="button" className="button" onClick={() => panBy(-40, 0)}>
-              ←
-            </button>
-            <button type="button" className="button" onClick={() => panBy(40, 0)}>
-              →
-            </button>
-            <button type="button" className="button" onClick={() => panBy(0, -40)}>
-              ↑
-            </button>
-            <button type="button" className="button" onClick={() => panBy(0, 40)}>
-              ↓
-            </button>
-          </div>
           {connectMode ? <span className="pill">Connect mode: pick two ports</span> : null}
         </div>
-        <div
-          className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}`}
-          style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
-          onWheel={handleWheel}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-        >
+      <div
+        className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}${
+          isDropActive ? ' diagram-canvas--dropping' : ''
+        }`}
+        style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
+        onWheel={handleWheel}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
           <svg
             ref={svgRef}
             width="100%"
@@ -723,12 +739,6 @@ export function DiagramCanvas({
   return (
     <div className="diagram-shell">
       <div className="diagram-controls">
-        <button type="button" className="button" onClick={() => toggleView('gridEnabled')}>
-          {view.gridEnabled ? 'Hide Grid' : 'Show Grid'}
-        </button>
-        <button type="button" className="button" onClick={() => toggleView('snapEnabled')}>
-          {view.snapEnabled ? 'Disable Snap' : 'Enable Snap'}
-        </button>
         <div className="zoom-group">
           <button type="button" className="button" onClick={() => zoomBy(0.9)}>
             −
@@ -738,26 +748,15 @@ export function DiagramCanvas({
             +
           </button>
         </div>
-        <div className="pan-group">
-          <button type="button" className="button" onClick={() => panBy(-40, 0)}>
-            ←
-          </button>
-          <button type="button" className="button" onClick={() => panBy(40, 0)}>
-            →
-          </button>
-          <button type="button" className="button" onClick={() => panBy(0, -40)}>
-            ↑
-          </button>
-          <button type="button" className="button" onClick={() => panBy(0, 40)}>
-            ↓
-          </button>
-        </div>
       </div>
       <div
-        className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}`}
+        className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}${
+          isDropActive ? ' diagram-canvas--dropping' : ''
+        }`}
         style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
         onWheel={handleWheel}
         onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
         <svg

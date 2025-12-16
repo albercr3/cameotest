@@ -84,27 +84,9 @@ export function Toolbar({
             ))}
           </select>
         </div>
-        <div className="toolbar__group toolbar__group--compact">
-          <button className="button button--ghost" onClick={onUndo} disabled={!onUndo || !canUndo} type="button">
-            Undo
-          </button>
-          <button className="button button--ghost" onClick={onRedo} disabled={!onRedo || !canRedo} type="button">
-            Redo
-          </button>
-          <button className="button button" onClick={onSave} disabled={!onSave || saving} type="button">
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          {canConnect ? (
-            <button
-              className={`button button--ghost${connectMode ? ' button--active' : ''}`}
-              onClick={onToggleConnectMode}
-              disabled={!onToggleConnectMode}
-              type="button"
-            >
-              {connectMode ? 'Connecting…' : 'Connect'}
-            </button>
-          ) : null}
-        </div>
+        <button className="button" onClick={onSave} disabled={!onSave || saving} type="button">
+          {saving ? 'Saving…' : 'Save'}
+        </button>
         <label className="toolbar__toggle">
           <input
             type="checkbox"
@@ -125,6 +107,7 @@ export function Toolbar({
           </button>
           {menuOpen ? (
             <div className="toolbar__menu-items">
+              <div className="toolbar__menu-label">Workspace</div>
               <button className="toolbar__menu-item" type="button" onClick={onCreateWorkspace}>
                 New workspace
               </button>
@@ -145,6 +128,23 @@ export function Toolbar({
               <button className="toolbar__menu-item" type="button" onClick={onExportSysml} disabled={!onExportSysml}>
                 Export SysML v2
               </button>
+              <div className="toolbar__menu-label">Edit</div>
+              <button className="toolbar__menu-item" type="button" onClick={onUndo} disabled={!onUndo || !canUndo}>
+                Undo
+              </button>
+              <button className="toolbar__menu-item" type="button" onClick={onRedo} disabled={!onRedo || !canRedo}>
+                Redo
+              </button>
+              {canConnect ? (
+                <button
+                  className={`toolbar__menu-item${connectMode ? ' toolbar__menu-item--active' : ''}`}
+                  type="button"
+                  onClick={onToggleConnectMode}
+                  disabled={!onToggleConnectMode}
+                >
+                  {connectMode ? 'Connecting…' : 'Connect mode'}
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
