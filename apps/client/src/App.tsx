@@ -10,7 +10,7 @@ import type {
   WorkspaceFiles,
   WorkspaceManifest,
 } from '@cameotest/shared';
-import { IR_VERSION, metaclassSchema, relationshipTypeSchema } from '@cameotest/shared';
+import { IR_VERSION, metaclassSchema, relationshipTypeSchema, validateWorkspaceFiles } from '@cameotest/shared';
 import { Panel } from './components/Panel';
 import { Toolbar } from './components/Toolbar';
 import { ModelBrowser, ModelBrowserNode } from './components/ModelBrowser';
@@ -18,6 +18,8 @@ import { PropertiesPanel } from './components/PropertiesPanel';
 import { DiagramCanvas } from './components/DiagramCanvas';
 import { DiagramTabs } from './components/DiagramTabs';
 import { ToastItem, ToastStack } from './components/Toast';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { SysmlDrawer } from './components/SysmlDrawer';
 import { DraggedElementPayload } from './dragTypes';
 import exampleWorkspace from './examples/example-workspace.json';
 
@@ -107,6 +109,7 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<WorkspaceManifest[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>();
   const [payload, setPayload] = useState<WorkspacePayload | null>(null);
+  const [workspaceNameDraft, setWorkspaceNameDraft] = useState('');
   const [status, setStatus] = useState('Fetching workspace list...');
   const [selection, setSelection] = useState<Selection | undefined>();
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -128,6 +131,11 @@ export default function App() {
   const [pendingConnectorPortId, setPendingConnectorPortId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [diagramMenuOpen, setDiagramMenuOpen] = useState(false);
+  const [codeDrawerOpen, setCodeDrawerOpen] = useState(false);
+  const [codeDraft, setCodeDraft] = useState('');
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [propertiesCollapsed, setPropertiesCollapsed] = useState(false);
   const pendingHistory = useRef(new Map<string, HistoryEntry>());
   const addOffset = useRef(0);
   const ibdPartOffset = useRef(0);
@@ -135,6 +143,7 @@ export default function App() {
   const clipboardNodesRef = useRef<Diagram['nodes']>([]);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const sysmlImportInputRef = useRef<HTMLInputElement | null>(null);
+  const diagramMenuRef = useRef<HTMLDivElement | null>(null);
 
   const showToast = useCallback((message: string, kind: ToastItem['kind'] = 'info') => {
     const id = crypto.randomUUID();
@@ -155,6 +164,16 @@ export default function App() {
       window.removeEventListener('contextmenu', close);
     };
   }, [contextMenu]);
+
+  useEffect(() => {
+    if (!diagramMenuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (diagramMenuRef.current && event.target instanceof Node && diagramMenuRef.current.contains(event.target)) return;
+      setDiagramMenuOpen(false);
+    };
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [diagramMenuOpen]);
 
   const selectElement = (id?: string) => setSelection(id ? { kind: 'element', id } : undefined);
   const selectRelationship = (id?: string) => setSelection(id ? { kind: 'relationship', id } : undefined);
@@ -220,64 +239,110 @@ export default function App() {
     [activeDiagramId, pushHistoryEntry, recordHistory, selectedNodeIds, selection],
   );
 
-  const refreshWorkspaces = useCallback(() => {
+  const refreshWorkspaces = useCallback(async () => {
     setLoadingWorkspaces(true);
-    getJson<WorkspaceManifest[]>('/api/workspaces')
-      .then((list) => {
-        setWorkspaces(list);
-        setActiveId((current) => (current && list.some((workspace) => workspace.id === current) ? current : undefined));
-        setStatus('Ready');
-      })
-      .catch((error) => {
-        console.error(error);
-        setBanner({ kind: 'error', messages: [error.message] });
-        setStatus('Unable to load workspaces');
-      })
-      .finally(() => setLoadingWorkspaces(false));
+    try {
+      const list = await getJson<WorkspaceManifest[]>('/api/workspaces');
+      setWorkspaces(list);
+      setActiveId((current) => (current && list.some((workspace) => workspace.id === current) ? current : undefined));
+      setStatus('Ready');
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      setBanner({ kind: 'error', messages: ['Unable to load workspaces', message] });
+      setStatus('Unable to load workspaces');
+    } finally {
+      setLoadingWorkspaces(false);
+    }
   }, []);
 
   useEffect(() => {
     refreshWorkspaces();
   }, [refreshWorkspaces]);
 
+  const resetToLanding = useCallback(() => {
+    setActiveId(undefined);
+    setPayload(null);
+    setSelection(undefined);
+    setSelectedNodeIds([]);
+    setActiveDiagramId(undefined);
+    setDirty(false);
+    setHistory([]);
+    setRedoStack([]);
+    setAutosaveError(null);
+    setBanner(null);
+    setStatus('Ready');
+    setCodeDrawerOpen(false);
+    setCodeDraft('');
+    setCodeError(null);
+    setPropertiesCollapsed(false);
+    setDiagramMenuOpen(false);
+  }, []);
+
+  const selectWorkspace = useCallback(
+    (id?: string) => {
+      if (!id) {
+        resetToLanding();
+        return;
+      }
+      setBanner(null);
+      setStatus(`Opening workspace “${id}”...`);
+      setActiveId(id);
+    },
+    [resetToLanding],
+  );
+
   useEffect(() => {
     if (!activeId) {
-      setPayload(null);
-      setSelection(undefined);
-      setSelectedNodeIds([]);
-      setActiveDiagramId(undefined);
-      setDirty(false);
-      setHistory([]);
-      setRedoStack([]);
-      setLastSavedAt(null);
+      resetToLanding();
       return;
     }
-    setStatus(`Opening workspace “${activeId}”...`);
-    setBanner(null);
-    postJson(`/api/workspaces/${activeId}/open`)
-      .then(() => getJson<WorkspacePayload>('/api/workspaces/current/load'))
-      .then((data) => {
-        const normalizedDiagrams = data.diagrams.diagrams.map(normalizeDiagram);
-        const normalizedPayload: WorkspacePayload = { ...data, diagrams: { diagrams: normalizedDiagrams } };
+    let cancelled = false;
+    const loadWorkspace = async () => {
+      setStatus(`Opening workspace “${activeId}”...`);
+      setBanner(null);
+      try {
+        await postJson(`/api/workspaces/${activeId}/open`);
+        const data = await getJson<WorkspacePayload>('/api/workspaces/current/load');
+        const validated = validateWorkspaceFiles(data);
+        const normalizedDiagrams = validated.diagrams.diagrams.map(normalizeDiagram);
+        const normalizedPayload: WorkspacePayload = { ...validated, diagrams: { diagrams: normalizedDiagrams } };
+        if (cancelled) return;
         setPayload(normalizedPayload);
         setHistory([]);
         setRedoStack([]);
         setDirty(false);
-        setLastSavedAt(data.manifest.updatedAt ?? null);
+        setLastSavedAt(validated.manifest.updatedAt ?? null);
         setAutosaveError(null);
-        const firstElement = data.model.elements[0]?.id;
+        const firstElement = validated.model.elements[0]?.id;
         setSelection(firstElement ? { kind: 'element', id: firstElement } : undefined);
         const firstDiagramNode = normalizedDiagrams[0]?.nodes[0];
         setSelectedNodeIds(firstDiagramNode ? [firstDiagramNode.id] : []);
         setActiveDiagramId(normalizedDiagrams[0]?.id);
         setStatus('Ready');
-      })
-      .catch((error) => {
-        console.error(error);
-        setBanner({ kind: 'error', messages: [error.message] });
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Failed to open workspace', error);
+        const message = error instanceof Error ? error.message : String(error);
+        setPayload(null);
+        setActiveDiagramId(undefined);
+        setSelectedNodeIds([]);
+        setBanner({
+          kind: 'error',
+          messages: ['Workspace failed to load', message],
+        });
         setStatus('Workspace not available');
-      });
-  }, [activeId]);
+      }
+    };
+    loadWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, resetToLanding]);
+
+  useEffect(() => {
+    setWorkspaceNameDraft(payload?.manifest.name ?? '');
+  }, [payload?.manifest.name]);
 
   const tree = useMemo<ModelBrowserNode[]>(() => {
     if (!payload) return [];
@@ -314,6 +379,15 @@ export default function App() {
     if (!payload || !selection || selection.kind !== 'relationship') return undefined;
     return payload.model.relationships.find((rel) => rel.id === selection.id);
   }, [payload, selection]);
+
+  useEffect(() => {
+    if (selectedElement) {
+      setCodeDraft(editableSnippetForElement(selectedElement));
+    } else {
+      setCodeDraft('');
+    }
+    setCodeError(null);
+  }, [selectedElement]);
 
   const activeDiagram: Diagram | undefined = useMemo(() => {
     if (!payload || !activeDiagramId) return undefined;
@@ -444,6 +518,11 @@ export default function App() {
     return payload.model.relationships.filter((rel) => relationshipTouchesElements(rel, target));
   }, [payload, selectedElement]);
 
+  const sysmlPreview = useMemo(
+    () => generateSysmlPreview(selectedElement, relatedRelationships, elementsById),
+    [elementsById, relatedRelationships, selectedElement],
+  );
+
   const relationshipCreationTypes = useMemo(
     () => relationshipTypes.filter((type) => type !== 'Connector'),
     [],
@@ -460,6 +539,31 @@ export default function App() {
         model: { ...current.model, elements },
       };
     });
+  };
+
+  const applyCodeDraft = () => {
+    if (!selectedElement) return;
+    try {
+      const parsed = parseEditableSnippet(codeDraft);
+      updateElement(selectedElement.id, {
+        name: parsed.name,
+        documentation: parsed.doc,
+        stereotypes: parsed.stereotypes,
+        tags: parsed.tags,
+      });
+      setCodeError(null);
+      showToast('Applied code edits to model', 'info');
+    } catch (error) {
+      setCodeError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const toggleCodeDrawer = () => {
+    if (selectedElement && !codeDrawerOpen) {
+      setCodeDraft(editableSnippetForElement(selectedElement));
+    }
+    setCodeError(null);
+    setCodeDrawerOpen((open) => !open);
   };
 
   const updateDiagram = (
@@ -522,6 +626,100 @@ export default function App() {
     [workspaces],
   );
 
+  const renameWorkspace = (nextName: string) => {
+    if (!payload) return;
+    const trimmed = nextName.trim();
+    if (!trimmed) {
+      setWorkspaceNameDraft(payload.manifest.name);
+      return;
+    }
+    if (trimmed === payload.manifest.name) {
+      setWorkspaceNameDraft(trimmed);
+      return;
+    }
+    const timestamp = new Date().toISOString();
+    setWorkspaceNameDraft(trimmed);
+    applyChange((current) => ({
+      ...current,
+      manifest: { ...current.manifest, name: trimmed, updatedAt: timestamp },
+    }));
+    setWorkspaces((list) =>
+      list.map((workspace) =>
+        workspace.id === payload.manifest.id ? { ...workspace, name: trimmed, updatedAt: timestamp } : workspace,
+      ),
+    );
+  };
+
+  const editableSnippetForElement = (element: Element) => {
+    const stereotypes = element.stereotypes?.join(', ') ?? '';
+    const tags = Object.entries(element.tags ?? {})
+      .map(([key, value]) => `${key}=${value}`)
+      .join(', ');
+    return `name: ${element.name}\ndoc: ${element.documentation ?? ''}\nstereotypes: ${stereotypes}\ntags: ${tags}`;
+  };
+
+  const generateSysmlPreview = (element?: Element, relationships: Relationship[] = [], byId?: Record<string, Element>) => {
+    if (!element) return 'Select an element to view generated SysML text.';
+    const header = `${element.metaclass.toLowerCase()} ${element.name}`;
+    const stereo = element.stereotypes?.length ? ` <<${element.stereotypes.join(', ')}>>` : '';
+    const doc = element.documentation ? `  doc "${element.documentation}"` : '';
+    const tagLines = Object.entries(element.tags ?? {}).map(([key, value]) => `  tag ${key} = ${value}`);
+    const relLines = relationships.map((rel) => {
+      if (rel.type === 'Connector') return `connector ${rel.sourcePortId} -> ${rel.targetPortId}`;
+      const source = rel.sourceId ? byId?.[rel.sourceId]?.name ?? rel.sourceId : '—';
+      const target = rel.targetId ? byId?.[rel.targetId]?.name ?? rel.targetId : '—';
+      return `${rel.type.toLowerCase()} ${source} -> ${target}`;
+    });
+    return [header + stereo, doc, ...tagLines, relLines.length ? 'relations:' : null, ...relLines.map((line) => `  ${line}`)]
+      .filter(Boolean)
+      .join('\n');
+  };
+
+  const parseEditableSnippet = (snippet: string) => {
+    const result: { name: string; doc: string; stereotypes: string[]; tags: Record<string, string> } = {
+      name: '',
+      doc: '',
+      stereotypes: [],
+      tags: {},
+    };
+    snippet
+      .split('\n')
+      .map((line) => line.trim())
+      .forEach((line) => {
+        if (!line) return;
+        const [rawKey, ...rawValue] = line.split(':');
+        if (!rawKey || rawValue.length === 0) return;
+        const key = rawKey.trim().toLowerCase();
+        const value = rawValue.join(':').trim();
+        if (key === 'name') {
+          result.name = value;
+        } else if (key === 'doc') {
+          result.doc = value;
+        } else if (key === 'stereotypes') {
+          result.stereotypes = value ? value.split(',').map((item) => item.trim()).filter(Boolean) : [];
+        } else if (key === 'tags') {
+          if (!value) {
+            result.tags = {};
+            return;
+          }
+          value.split(',').forEach((pair) => {
+            const [rawTagKey, rawTagValue] = pair.split('=');
+            const tagKey = rawTagKey?.trim();
+            const tagValue = rawTagValue?.trim();
+            if (tagKey && tagValue !== undefined) {
+              result.tags[tagKey] = tagValue;
+            } else {
+              throw new Error(`Malformed tag entry: ${pair}`);
+            }
+          });
+        }
+      });
+    if (!result.name) {
+      throw new Error('name is required in the editable block');
+    }
+    return result;
+  };
+
   const createWorkspace = async () => {
     try {
       setStatus('Creating workspace...');
@@ -536,7 +734,7 @@ export default function App() {
       };
       await postJson<WorkspaceManifest>('/api/workspaces', manifest);
       await refreshWorkspaces();
-      setActiveId(manifest.id);
+      selectWorkspace(manifest.id);
       setBanner(null);
       setStatus('Ready');
     } catch (error) {
@@ -550,11 +748,12 @@ export default function App() {
     setLoadingExample(true);
     try {
       setStatus('Loading example workspace...');
+      const validated = validateWorkspaceFiles(exampleWorkspace as WorkspaceFiles);
       const response = await postJson<{ manifest: WorkspaceManifest }>('/api/workspaces/import', {
-        workspace: exampleWorkspace,
+        workspace: validated,
       });
       await refreshWorkspaces();
-      setActiveId(response.manifest.id);
+      selectWorkspace(response.manifest.id);
       setBanner(null);
       setStatus('Ready');
     } catch (error) {
@@ -567,6 +766,13 @@ export default function App() {
     }
   };
 
+  const openSampleWorkspace = () => {
+    setStatus('Opening sample BDD workspace...');
+    setBanner(null);
+    refreshWorkspaces();
+    selectWorkspace('bdd-sample');
+  };
+
   const handleImportWorkspace = async (file: File) => {
     setImportingWorkspace(true);
     try {
@@ -576,12 +782,14 @@ export default function App() {
       if (parsed?.type === 'sysmlv2-json') {
         throw new Error('This file is a SysML v2 bundle. Use the SysML import option instead.');
       }
+      const candidate = (parsed as { workspace?: WorkspaceFiles }).workspace ?? parsed;
+      const validated = validateWorkspaceFiles(candidate as WorkspaceFiles);
       const response = await postJson<{ manifest: WorkspaceManifest }>(
         '/api/workspaces/import',
-        { workspace: parsed },
+        { workspace: validated },
       );
       await refreshWorkspaces();
-      setActiveId(response.manifest.id);
+      selectWorkspace(response.manifest.id);
       setBanner(null);
       setStatus('Ready');
     } catch (error) {
@@ -603,7 +811,7 @@ export default function App() {
       const payload = parsed?.type === 'sysmlv2-json' ? parsed : { ...parsed, type: 'sysmlv2-json' };
       const response = await postJson<{ manifest: WorkspaceManifest }>('/api/workspaces/import', payload);
       await refreshWorkspaces();
-      setActiveId(response.manifest.id);
+      selectWorkspace(response.manifest.id);
       setBanner(null);
       setStatus('Ready');
     } catch (error) {
@@ -1022,6 +1230,24 @@ export default function App() {
     return diagram.id;
   };
 
+  const diagramOwnerForNewDiagram = () =>
+    selectContainerId(selection?.kind === 'element' ? selection.id : activeDiagram?.ownerId ?? undefined) ?? null;
+
+  const handleCreateBddFromMenu = () => {
+    const ownerId = diagramOwnerForNewDiagram();
+    createBddDiagram(ownerId);
+    setDiagramMenuOpen(false);
+  };
+
+  const handleCreateIbdFromMenu = () => {
+    if (!selectedElement || selectedElement.metaclass !== 'Block') {
+      setDiagramMenuOpen(false);
+      return;
+    }
+    createIbdDiagramForBlock(selectedElement);
+    setDiagramMenuOpen(false);
+  };
+
   const handleDropElement = (payload: DraggedElementPayload, position: { x: number; y: number }) => {
     if (!payload?.elementId || !activeDiagram) return;
     const element = elementsById[payload.elementId];
@@ -1383,6 +1609,12 @@ export default function App() {
     pasteNodes();
   };
 
+  const resetActiveRouting = () => {
+    if (!activeDiagram) return;
+    const edges = activeDiagram.edges.map((edge) => ({ ...edge, routingPoints: [] }));
+    updateDiagram(activeDiagram.id, { ...activeDiagram, edges });
+  };
+
   const undo = useCallback(() => {
     if (!payload) return;
     setHistory((prev) => {
@@ -1600,6 +1832,20 @@ export default function App() {
         createIbdDiagramForBlock(target);
         setContextMenu(null);
       };
+      const canAddTargetToDiagram =
+        !!activeDiagram &&
+        ((isIbdDiagram(activeDiagram) &&
+          belongsToContextBlock(target, activeDiagram.contextBlockId) &&
+          (target.metaclass === 'Part' || target.metaclass === 'Port')) ||
+          isBddDiagram(activeDiagram));
+      const addTargetToDiagram = () => {
+        addToDiagram(target.id);
+        setContextMenu(null);
+      };
+      const removeTarget = () => {
+        deleteElement(target.id);
+        setContextMenu(null);
+      };
       return (
         <div
           className="context-menu"
@@ -1642,6 +1888,19 @@ export default function App() {
               disabled={target.metaclass !== 'Block'}
             >
               Create IBD diagram
+            </button>
+          </div>
+          <div className="context-menu__group">
+            <button
+              type="button"
+              onClick={addTargetToDiagram}
+              className="context-menu__item"
+              disabled={!canAddTargetToDiagram}
+            >
+              Add to current diagram
+            </button>
+            <button type="button" onClick={removeTarget} className="context-menu__item context-menu__item--danger">
+              Delete element
             </button>
           </div>
         </div>
@@ -1703,6 +1962,16 @@ export default function App() {
         }
         setContextMenu(null);
       };
+      const canPasteHere = isBddDiagram(activeDiagram) && clipboardNodesRef.current.length > 0;
+      const canResetRouting = activeDiagram.edges.some((edge) => edge.routingPoints?.length);
+      const pasteHere = () => {
+        pasteNodes();
+        setContextMenu(null);
+      };
+      const resetHere = () => {
+        resetActiveRouting();
+        setContextMenu(null);
+      };
       return (
         <div
           className="context-menu"
@@ -1713,6 +1982,12 @@ export default function App() {
             <button type="button" onClick={createHere} className="context-menu__item">
               {isBddDiagram(activeDiagram) ? 'Create block here' : 'Create part here'}
             </button>
+            <button type="button" onClick={pasteHere} className="context-menu__item" disabled={!canPasteHere}>
+              Paste
+            </button>
+            <button type="button" onClick={resetHere} className="context-menu__item" disabled={!canResetRouting}>
+              Reset routing
+            </button>
           </div>
         </div>
       );
@@ -1720,67 +1995,94 @@ export default function App() {
     return null;
   })();
 
-  return (
-    <div className="app">
-      <Toolbar
-        workspaces={workspaces}
-        activeId={activeId}
-        onChange={(id) => setActiveId(id || undefined)}
-        status={status}
-        onSave={payload ? handleSave : undefined}
-        saving={saving}
-        onCreateWorkspace={createWorkspace}
-        onImportWorkspace={triggerImport}
-        onImportSysml={triggerSysmlImport}
-        onExportWorkspace={payload ? handleExportWorkspace : undefined}
-        onExportSysml={payload ? handleExportSysml : undefined}
-        autosaveEnabled={autosaveEnabled}
-        autosaveStatus={autosaveStatus}
-        onToggleAutosave={
-          payload
-            ? () => {
-                setAutosaveEnabled((value) => !value);
-                setAutosaveError(null);
-              }
-            : undefined
+  const workspaceTitleNode = payload ? (
+    <input
+      className="workspace-title-input"
+      value={workspaceNameDraft}
+      aria-label="Workspace name"
+      onChange={(event) => setWorkspaceNameDraft(event.target.value)}
+      onBlur={() => renameWorkspace(workspaceNameDraft)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          renameWorkspace(workspaceNameDraft);
         }
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={canUndo ? undo : undefined}
-        onRedo={canRedo ? redo : undefined}
-        connectMode={connectMode}
-        canConnect={canUseConnectMode}
-        onToggleConnectMode={canUseConnectMode ? toggleConnectMode : undefined}
-      />
-      <ToastStack toasts={toasts} onDismiss={dismissToast} />
-      <input
-        ref={importInputRef}
-        type="file"
-        accept="application/json,.json"
-        style={{ display: 'none' }}
-        onChange={handleImportInputChange}
-      />
-      <input
-        ref={sysmlImportInputRef}
-        type="file"
-        accept="application/json,.json"
-        style={{ display: 'none' }}
-        onChange={handleSysmlImportChange}
-      />
-      {contextMenuNode}
-      {banner ? (
-        <div className={`banner banner--${banner.kind}`}>
-          {banner.messages.map((message) => (
-            <div key={message}>{message}</div>
-          ))}
-        </div>
-      ) : null}
-      {payload ? (
-        <main className="layout layout--three">
-          <Panel title="Model Browser" subtitle="Containment tree with search">
-            <ModelBrowser
-              tree={tree}
-              search={search}
+        if (event.key === 'Escape') {
+          setWorkspaceNameDraft(payload?.manifest.name ?? '');
+        }
+      }}
+    />
+  ) : (
+    'Workspace overview'
+  );
+
+  return (
+    <ErrorBoundary onReset={resetToLanding}>
+      <div className="app">
+        <Toolbar
+          workspaces={workspaces}
+          activeId={activeId}
+          onChange={(id) => selectWorkspace(id || undefined)}
+          status={status}
+          onSave={payload ? handleSave : undefined}
+          saving={saving}
+          onCreateWorkspace={createWorkspace}
+          onImportWorkspace={triggerImport}
+          onImportSysml={triggerSysmlImport}
+          onExportWorkspace={payload ? handleExportWorkspace : undefined}
+          onExportSysml={payload ? handleExportSysml : undefined}
+          autosaveEnabled={autosaveEnabled}
+          autosaveStatus={autosaveStatus}
+          onToggleAutosave={
+            payload
+              ? () => {
+                  setAutosaveEnabled((value) => !value);
+                  setAutosaveError(null);
+                }
+              : undefined
+          }
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={canUndo ? undo : undefined}
+          onRedo={canRedo ? redo : undefined}
+          connectMode={connectMode}
+          canConnect={canUseConnectMode}
+          onToggleConnectMode={canUseConnectMode ? toggleConnectMode : undefined}
+        />
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: 'none' }}
+          onChange={handleImportInputChange}
+        />
+        <input
+          ref={sysmlImportInputRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: 'none' }}
+          onChange={handleSysmlImportChange}
+        />
+        {contextMenuNode}
+        {banner ? (
+          <div className={`banner banner--${banner.kind}`}>
+            {banner.messages.map((message) => (
+              <div key={message}>{message}</div>
+            ))}
+            <div className="banner__actions">
+              <button className="button button--ghost" type="button" onClick={resetToLanding}>
+                Back to landing
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {payload ? (
+          <main className="layout layout--three">
+            <Panel title="Model Browser" subtitle="Containment tree with search">
+              <ModelBrowser
+                tree={tree}
+                search={search}
               onSearch={setSearch}
               selectedId={selectedElementId}
               onSelect={selectElement}
@@ -1797,7 +2099,7 @@ export default function App() {
               onContextMenu={handleTreeContextMenu}
             />
           </Panel>
-          <Panel title={payload?.manifest.name ?? 'Workspace overview'} subtitle={payload?.manifest.description}>
+          <Panel title={workspaceTitleNode} subtitle={payload?.manifest.description}>
             <p className="lede">
               {payload
                 ? `${summary.elements} elements, ${summary.relationships} relationships, ${summary.diagrams} diagrams.`
@@ -1815,6 +2117,38 @@ export default function App() {
                   {selectedNodeIds.length > 0 ? (
                     <span className="diagram-meta diagram-meta--count">{selectedNodeIds.length} selected</span>
                   ) : null}
+                  <div className="diagram-actions" ref={diagramMenuRef}>
+                    <button
+                      type="button"
+                      className="button button--ghost"
+                      onClick={toggleCodeDrawer}
+                      disabled={!selectedElement}
+                    >
+                      {codeDrawerOpen ? 'Hide code' : 'Code'}
+                    </button>
+                    <button
+                      type="button"
+                      className="button button--ghost"
+                      onClick={() => setDiagramMenuOpen((open) => !open)}
+                    >
+                      New diagram ▾
+                    </button>
+                    {diagramMenuOpen ? (
+                      <div className="diagram-actions__menu">
+                        <button type="button" className="diagram-actions__item" onClick={handleCreateBddFromMenu}>
+                          Block Definition (BDD)
+                        </button>
+                        <button
+                          type="button"
+                          className="diagram-actions__item"
+                          onClick={handleCreateIbdFromMenu}
+                          disabled={!selectedElement || selectedElement.metaclass !== 'Block'}
+                        >
+                          Internal Block (IBD)
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
                 <DiagramCanvas
                   diagram={activeDiagram}
@@ -1854,57 +2188,78 @@ export default function App() {
               </div>
             )}
           </Panel>
-          <Panel title="Properties" subtitle={propertiesSubtitle}>
-            <PropertiesPanel
-              selection={selection}
-              element={selectedElement}
-              relationship={selectedRelationship}
-              elements={elementsById}
-              relatedRelationships={relatedRelationships}
-              metaclasses={metaclasses}
-              relationshipTypes={relationshipTypes}
-              relationshipCreationTypes={relationshipCreationTypes}
-              onSelect={setSelection}
-              onElementChange={(updates) => selectedElementId && updateElement(selectedElementId, updates)}
-              onRelationshipChange={(updates) =>
-                selectedRelationshipId && updateRelationship(selectedRelationshipId, updates)
-              }
-              onConnectorItemFlowChange={
-                selectedRelationship?.type === 'Connector'
-                  ? (value) => updateConnectorItemFlow(selectedRelationship.id, value)
-                  : undefined
-              }
-              onCreateRelationship={
-                selectedElement
-                  ? (type, targetId) => createRelationship(type, selectedElement.id, targetId)
-                  : undefined
-              }
-              onDeleteRelationship={handleDeleteRelationship}
-              onAddToDiagram={
-                selectedElementId && canAddElementToDiagram
-                  ? () => addToDiagram(selectedElementId)
-                  : undefined
-              }
-              onAddPort={
-                (selectedIsBlock || selectedIsPart) && selectedElement
-                  ? () => createPort(selectedElement.id)
-                  : undefined
-              }
-              onCreatePart={
-                selectedIsBlock &&
-                selectedElement &&
-                activeDiagram &&
-                isIbdDiagram(activeDiagram) &&
-                activeDiagram.contextBlockId
-                  ? () => createPart(activeDiagram.contextBlockId!, selectedElement.id)
-                  : undefined
-              }
-              onCreateIbd={
-                selectedIsBlock && selectedElement
-                  ? () => createIbdDiagramForBlock(selectedElement)
-                  : undefined
-              }
-            />
+          <Panel
+            title="Properties"
+            subtitle={propertiesSubtitle}
+            actions={
+              <>
+                <button className="button button--ghost" type="button" onClick={toggleCodeDrawer} disabled={!selectedElement}>
+                  {codeDrawerOpen ? 'Hide code' : 'Code'}
+                </button>
+                <button
+                  className="button button--ghost"
+                  type="button"
+                  onClick={() => setPropertiesCollapsed((value) => !value)}
+                >
+                  {propertiesCollapsed ? 'Show' : 'Hide'} properties
+                </button>
+              </>
+            }
+          >
+            {propertiesCollapsed ? (
+              <div className="empty-state">Properties hidden. Use the toggle above to reopen.</div>
+            ) : (
+              <PropertiesPanel
+                selection={selection}
+                element={selectedElement}
+                relationship={selectedRelationship}
+                elements={elementsById}
+                relatedRelationships={relatedRelationships}
+                metaclasses={metaclasses}
+                relationshipTypes={relationshipTypes}
+                relationshipCreationTypes={relationshipCreationTypes}
+                onSelect={setSelection}
+                onElementChange={(updates) => selectedElementId && updateElement(selectedElementId, updates)}
+                onRelationshipChange={(updates) =>
+                  selectedRelationshipId && updateRelationship(selectedRelationshipId, updates)
+                }
+                onConnectorItemFlowChange={
+                  selectedRelationship?.type === 'Connector'
+                    ? (value) => updateConnectorItemFlow(selectedRelationship.id, value)
+                    : undefined
+                }
+                onCreateRelationship={
+                  selectedElement
+                    ? (type, targetId) => createRelationship(type, selectedElement.id, targetId)
+                    : undefined
+                }
+                onDeleteRelationship={handleDeleteRelationship}
+                onAddToDiagram={
+                  selectedElementId && canAddElementToDiagram
+                    ? () => addToDiagram(selectedElementId)
+                    : undefined
+                }
+                onAddPort={
+                  (selectedIsBlock || selectedIsPart) && selectedElement
+                    ? () => createPort(selectedElement.id)
+                    : undefined
+                }
+                onCreatePart={
+                  selectedIsBlock &&
+                  selectedElement &&
+                  activeDiagram &&
+                  isIbdDiagram(activeDiagram) &&
+                  activeDiagram.contextBlockId
+                    ? () => createPart(activeDiagram.contextBlockId!, selectedElement.id)
+                    : undefined
+                }
+                onCreateIbd={
+                  selectedIsBlock && selectedElement
+                    ? () => createIbdDiagramForBlock(selectedElement)
+                    : undefined
+                }
+              />
+            )}
           </Panel>
         </main>
       ) : (
@@ -1919,6 +2274,14 @@ export default function App() {
                 disabled={loadingExample}
               >
                 {loadingExample ? 'Loading example…' : 'Load example workspace'}
+              </button>
+              <button
+                className="button button--ghost"
+                type="button"
+                onClick={openSampleWorkspace}
+                disabled={loadingWorkspaces}
+              >
+                {loadingWorkspaces ? 'Preparing sample…' : 'Open sample BDD'}
               </button>
               <button className="button button--ghost" type="button" onClick={createWorkspace} disabled={loadingWorkspaces}>
                 Create new workspace
@@ -1946,6 +2309,16 @@ export default function App() {
             </p>
           </Panel>
           <Panel title="Available workspaces" subtitle={landingSubtitle}>
+            <div className="landing__actions">
+              <button
+                className="button button--ghost"
+                type="button"
+                onClick={() => refreshWorkspaces()}
+                disabled={loadingWorkspaces}
+              >
+                {loadingWorkspaces ? 'Refreshing…' : 'Refresh list'}
+              </button>
+            </div>
             {workspaces.length === 0 ? (
               <div className="empty-state">Create a new workspace or import one to get started.</div>
             ) : (
@@ -1957,7 +2330,7 @@ export default function App() {
                       <div className="workspace-card__id">{workspace.id}</div>
                     </div>
                     <div className="workspace-card__meta">Updated {workspace.updatedAt}</div>
-                    <button className="button button--ghost" type="button" onClick={() => setActiveId(workspace.id)}>
+                    <button className="button button--ghost" type="button" onClick={() => selectWorkspace(workspace.id)}>
                       Open workspace
                     </button>
                   </li>
@@ -1967,6 +2340,20 @@ export default function App() {
           </Panel>
         </main>
       )}
-    </div>
+        <SysmlDrawer
+          open={codeDrawerOpen}
+          element={selectedElement}
+          preview={sysmlPreview}
+          draft={codeDraft}
+          error={codeError}
+          onDraftChange={setCodeDraft}
+          onApply={applyCodeDraft}
+          onClose={() => {
+            setCodeDrawerOpen(false);
+            setCodeError(null);
+          }}
+        />
+      </div>
+    </ErrorBoundary>
   );
 }

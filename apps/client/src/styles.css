@@ -49,7 +49,19 @@ body {
 .toolbar__actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar__group--compact .button {
+  padding: 8px 10px;
 }
 
 .toolbar__toggle {
@@ -75,6 +87,49 @@ body {
 .toolbar__label {
   font-weight: 600;
   color: #334155;
+}
+
+.toolbar__menu {
+  position: relative;
+}
+
+.toolbar__menu-items {
+  position: absolute;
+  right: 0;
+  top: 38px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+  min-width: 220px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 20;
+}
+
+.toolbar__menu-item {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toolbar__menu-item:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.toolbar__menu-item:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.toolbar__menu-trigger {
+  padding: 8px 10px;
 }
 
 select {
@@ -111,16 +166,56 @@ select {
 
 .panel__header {
   padding: 16px 16px 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .panel__header h2 {
   margin: 0;
 }
 
+.panel__title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
 .panel__subtitle {
   margin: 4px 0 0;
   color: #475569;
   font-size: 14px;
+}
+
+.panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-title-input {
+  font-size: 22px;
+  font-weight: 800;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 6px 8px;
+  border-radius: 10px;
+  min-width: 200px;
+  max-width: 420px;
+  color: #0f172a;
+}
+
+.workspace-title-input:hover {
+  border-color: #cbd5e1;
+}
+
+.workspace-title-input:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+  background: #ffffff;
 }
 
 .panel__body {
@@ -236,6 +331,12 @@ select {
   border-color: #0ea5e9;
   background: #ecfeff;
   color: #075985;
+}
+
+.banner__actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
 }
 
 .model-browser {
@@ -395,6 +496,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .diagram-meta {
@@ -408,6 +510,47 @@ textarea {
   background: #eef2ff;
   color: #312e81;
   font-weight: 700;
+}
+
+.diagram-actions {
+  margin-left: auto;
+  position: relative;
+}
+
+.diagram-actions__menu {
+  position: absolute;
+  right: 0;
+  top: 38px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+  padding: 6px;
+  z-index: 15;
+}
+
+.diagram-actions__item {
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  font-weight: 700;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.diagram-actions__item:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.diagram-actions__item:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
 }
 
 .landing__actions {
@@ -722,6 +865,10 @@ textarea {
   cursor: not-allowed;
 }
 
+.context-menu__item--danger {
+  color: #b91c1c;
+}
+
 .diagram-node--related rect {
   stroke: #0ea5e9;
   stroke-dasharray: 4 4;
@@ -752,6 +899,139 @@ textarea {
 
 .zoom-value {
   font-weight: 700;
+}
+
+.code-drawer {
+  position: fixed;
+  top: 72px;
+  right: 0;
+  width: 380px;
+  max-width: 92%;
+  height: calc(100% - 90px);
+  background: #0f172a;
+  color: #e2e8f0;
+  border-left: 1px solid #1e293b;
+  box-shadow: -12px 0 30px rgba(15, 23, 42, 0.35);
+  transform: translateX(110%);
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+}
+
+.code-drawer--open {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.code-drawer__header {
+  padding: 16px 18px 10px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.code-drawer__subtitle {
+  margin: 4px 0 0;
+  color: #cbd5e1;
+}
+
+.code-drawer__body {
+  padding: 0 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+}
+
+.code-drawer__section {
+  display: grid;
+  gap: 10px;
+}
+
+.code-drawer__label {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.code-drawer__preview {
+  background: #0b1220;
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 120px;
+  white-space: pre-wrap;
+}
+
+.code-drawer__editor {
+  width: 100%;
+  min-height: 150px;
+  border-radius: 12px;
+  border: 1px solid #1f2937;
+  padding: 10px;
+  background: #0b1220;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+}
+
+.code-drawer__editor:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.35);
+}
+
+.code-drawer__error {
+  background: #7f1d1d;
+  color: #fecdd3;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.code-drawer__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.error-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 20% 20%, #f8fafc, #e2e8f0);
+  padding: 40px 24px;
+}
+
+.error-screen__card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.1);
+  border-radius: 16px;
+  max-width: 720px;
+  width: 100%;
+  padding: 32px;
+  display: grid;
+  gap: 16px;
+}
+
+.error-screen__message {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+  overflow: auto;
+}
+
+.pill--muted {
+  background: #e2e8f0;
+  color: #0f172a;
 }
 
 @media (max-width: 900px) {
