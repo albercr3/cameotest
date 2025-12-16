@@ -73,14 +73,22 @@ export function DiagramCanvas({
   const isIbd = (diagram.kind ?? diagram.type) === 'IBD';
 
   const view = diagram.viewSettings;
+  const diagramRef = useRef(diagram);
+  const viewRef = useRef(view);
+
+  useEffect(() => {
+    diagramRef.current = diagram;
+    viewRef.current = diagram.viewSettings;
+  }, [diagram]);
 
   const toDiagramPoint = (
     event: React.PointerEvent | PointerEvent | React.DragEvent | React.MouseEvent,
   ) => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
-    const x = (event.clientX - rect.left) / view.zoom - view.panX;
-    const y = (event.clientY - rect.top) / view.zoom - view.panY;
+    const currentView = viewRef.current;
+    const x = (event.clientX - rect.left) / currentView.zoom - currentView.panX;
+    const y = (event.clientY - rect.top) / currentView.zoom - currentView.panY;
     return { x, y };
   };
 
@@ -90,8 +98,9 @@ export function DiagramCanvas({
     dy: number,
     options?: { transient?: boolean; historyKey?: string },
   ) => {
-    const snap = view.snapEnabled ? GRID_SIZE : 1;
-    const nextNodes = diagram.nodes.map((node) => {
+    const snap = viewRef.current.snapEnabled ? GRID_SIZE : 1;
+    const baseDiagram = diagramRef.current ?? diagram;
+    const nextNodes = baseDiagram.nodes.map((node) => {
       const match = nodes.find((candidate) => candidate.id === node.id);
       if (!match) return node;
       const snappedX = Math.round((match.x + dx) / snap) * snap;
@@ -111,7 +120,8 @@ export function DiagramCanvas({
   };
 
   const startPan = (event: React.PointerEvent | PointerEvent) => {
-    panStart.current = { x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY };
+    const currentView = viewRef.current;
+    panStart.current = { x: event.clientX, y: event.clientY, panX: currentView.panX, panY: currentView.panY };
     const target = svgRef.current;
     target?.setPointerCapture(event.pointerId);
     window.addEventListener('pointermove', handleCanvasPointerMove);
@@ -158,8 +168,9 @@ export function DiagramCanvas({
 
   const handlePointerMove = (event: PointerEvent) => {
     if (!dragStart.current || dragStart.current.nodes.length === 0) return;
-    const dx = (event.clientX - dragStart.current.x) / view.zoom;
-    const dy = (event.clientY - dragStart.current.y) / view.zoom;
+    const currentView = viewRef.current;
+    const dx = (event.clientX - dragStart.current.x) / currentView.zoom;
+    const dy = (event.clientY - dragStart.current.y) / currentView.zoom;
     nodeDragMoved.current = nodeDragMoved.current || dx !== 0 || dy !== 0;
     updateNodePositions(dragStart.current.nodes, dx, dy, {
       transient: true,
@@ -169,7 +180,8 @@ export function DiagramCanvas({
 
   const handlePointerUp = () => {
     if (nodeDragMoved.current && nodeDragKey.current) {
-      onChange(diagram, { historyKey: nodeDragKey.current });
+      const latestDiagram = diagramRef.current ?? diagram;
+      onChange(latestDiagram, { historyKey: nodeDragKey.current });
     }
     nodeDragKey.current = null;
     nodeDragMoved.current = false;
@@ -200,11 +212,17 @@ export function DiagramCanvas({
 
   const handleCanvasPointerMove = (event: PointerEvent) => {
     if (!panStart.current) return;
-    const dx = (event.clientX - panStart.current.x) / view.zoom;
-    const dy = (event.clientY - panStart.current.y) / view.zoom;
+    const currentView = viewRef.current;
+    const currentDiagram = diagramRef.current ?? diagram;
+    const dx = (event.clientX - panStart.current.x) / currentView.zoom;
+    const dy = (event.clientY - panStart.current.y) / currentView.zoom;
     onChange({
-      ...diagram,
-      viewSettings: { ...view, panX: panStart.current.panX + dx, panY: panStart.current.panY + dy },
+      ...currentDiagram,
+      viewSettings: {
+        ...currentView,
+        panX: panStart.current.panX + dx,
+        panY: panStart.current.panY + dy,
+      },
     });
   };
 
@@ -459,7 +477,8 @@ export function DiagramCanvas({
     const handlePortPointerUp = () => {
       if (portDragRef.current) {
         if (portDragMoved.current) {
-          onChange(diagram, { historyKey: portDragRef.current.historyKey });
+          const latestDiagram = diagramRef.current ?? diagram;
+          onChange(latestDiagram, { historyKey: portDragRef.current.historyKey });
         }
         portDragRef.current = null;
       }

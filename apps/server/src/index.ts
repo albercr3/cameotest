@@ -146,7 +146,7 @@ app.post('/api/workspaces', (req, res) => {
     diagrams: { diagrams: [] },
   };
   writeWorkspace(starter);
-  currentWorkspaceId = id;
+  currentWorkspaceId = manifest.id;
   res.status(201).json(manifest);
 });
 
@@ -285,7 +285,7 @@ app.post('/api/workspaces/current/duplicate', (req, res) => {
       updatedAt: new Date().toISOString(),
     };
     writeWorkspace({ manifest, model: source.model, diagrams: source.diagrams });
-    currentWorkspaceId = id;
+    currentWorkspaceId = manifest.id;
     res.status(201).json({ status: 'duplicated', manifest });
   } catch (error) {
     res.status(400).json({ message: 'Duplicate failed', details: String(error) });
