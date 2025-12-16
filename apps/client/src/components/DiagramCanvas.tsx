@@ -441,6 +441,20 @@ export function DiagramCanvas({
     [releasePointerCapture],
   );
 
+useEffect(() => {
+  if (!isIbd) return;
+
+  const onCancel = (event: PointerEvent) => cancelPortDrag(event.pointerId);
+  const onBlur = () => cancelPortDrag();
+
+  window.addEventListener('pointercancel', onCancel);
+  window.addEventListener('blur', onBlur);
+
+  return () => {
+    window.removeEventListener('pointercancel', onCancel);
+    window.removeEventListener('blur', onBlur);
+  };
+}, [cancelPortDrag, isIbd]);
   const handlePortPointerMove = (event: PointerEvent) => {
     if (!portDragRef.current) return;
     const node = nodesById.get(portDragRef.current.portId);
