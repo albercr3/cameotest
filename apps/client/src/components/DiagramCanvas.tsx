@@ -68,6 +68,7 @@ export function DiagramCanvas({
     | null
   >(null);
   const portDragMoved = useRef(false);
+  const cancelPortDragRef = useRef<(pointerId?: number) => void>(() => {});
   const pointerCapture = useRef<{ id: number; target: globalThis.Element | null } | null>(null);
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [draggingPortId, setDraggingPortId] = useState<string | null>(null);
@@ -176,6 +177,18 @@ export function DiagramCanvas({
       window.removeEventListener('blur', onBlur);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isIbd) return;
+    const onCancel = (event: PointerEvent) => cancelPortDrag(event.pointerId);
+    const onBlur = () => cancelPortDrag();
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [cancelPortDrag, isIbd]);
 
   const getSvgMetrics = () => {
     const rect = svgRef.current?.getBoundingClientRect();
