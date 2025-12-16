@@ -91,6 +91,19 @@ export function DiagramCanvas({
     viewRef.current = diagram.viewSettings;
   }, [diagram]);
 
+  const releasePointerCapture = (pointerId?: number) => {
+    const capture = pointerCapture.current;
+    const releaseTarget = capture?.target;
+    if (releaseTarget && 'releasePointerCapture' in releaseTarget && typeof releaseTarget.releasePointerCapture === 'function') {
+      try {
+        releaseTarget.releasePointerCapture(pointerId ?? capture.id);
+      } catch {
+        /* ignore */
+      }
+    }
+    pointerCapture.current = null;
+  };
+
   const clearNodeDrag = () => {
     nodeDragKey.current = null;
     nodeDragMoved.current = false;
@@ -271,19 +284,6 @@ export function DiagramCanvas({
     window.addEventListener('pointerup', handleCanvasPointerUp);
   };
 
-  const releasePointerCapture = (pointerId?: number) => {
-    const capture = pointerCapture.current;
-    const releaseTarget = capture?.target;
-    if (releaseTarget && 'releasePointerCapture' in releaseTarget && typeof releaseTarget.releasePointerCapture === 'function') {
-      try {
-        releaseTarget.releasePointerCapture(pointerId ?? capture.id);
-      } catch {
-        /* ignore */
-      }
-    }
-    pointerCapture.current = null;
-  };
-
   const handlePointerDown = (event: React.PointerEvent, nodeId: string) => {
     event.preventDefault();
     event.stopPropagation();
@@ -455,6 +455,7 @@ useEffect(() => {
     window.removeEventListener('blur', onBlur);
   };
 }, [cancelPortDrag, isIbd]);
+
   const handlePortPointerMove = (event: PointerEvent) => {
     if (!portDragRef.current) return;
     const node = nodesById.get(portDragRef.current.portId);
