@@ -69,14 +69,18 @@ async function deleteJson(url: string): Promise<void> {
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  const hasBody = text.trim().length > 0;
   let payload: any = null;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
+  if (hasBody) {
+    try {
+      payload = JSON.parse(text);
+    } catch (error) {
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+      throw error as Error;
     }
-    throw error as Error;
   }
   if (!response.ok) {
     const message = payload?.message ?? `Request failed with status ${response.status}`;
@@ -2701,15 +2705,6 @@ export default function App() {
                       onRenameSubmit={handleRenameSubmit}
                       onRenameCancel={handleRenameCancel}
                       onSelect={selectElement}
-                      onCreatePackage={() => createElement('Package')}
-                      onCreateBlock={() => createElement('Block')}
-                      onDelete={selectedElementId ? handleDelete : undefined}
-                      onAddToDiagram={
-                        selectedElementId && canAddElementToDiagram
-                          ? () => addToDiagram(selectedElementId)
-                          : undefined
-                      }
-                      activeDiagram={activeDiagram}
                       disableActions={!payload}
                       onContextMenu={handleTreeContextMenu}
                     />

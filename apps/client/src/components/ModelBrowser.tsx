@@ -1,8 +1,31 @@
 import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
-import type { Diagram, Element } from '@cameotest/shared';
+import type { Element } from '@cameotest/shared';
 import { ELEMENT_DRAG_MIME } from '../dragTypes';
 import { accentForMetaclass } from '../styles/accents';
+
+const glyphForMetaclass = (metaclass: Element['metaclass'] | string) => {
+  switch (metaclass) {
+    case 'Package':
+      return '📂';
+    case 'Block':
+      return '▭';
+    case 'Part':
+      return '◇';
+    case 'Port':
+      return '◎';
+    case 'Requirement':
+      return '📝';
+    case 'InterfaceBlock':
+      return '⧉';
+    case 'Actor':
+      return '👤';
+    case 'Enumeration':
+      return '≡';
+    default:
+      return '⬚';
+  }
+};
 
 export interface ModelBrowserNode {
   element: Element;
@@ -20,11 +43,6 @@ interface ModelBrowserProps {
   onRenameSubmit?: (value: string) => void;
   onRenameCancel?: () => void;
   onSelect: (id: string) => void;
-  onCreatePackage: () => void;
-  onCreateBlock: () => void;
-  onDelete?: () => void;
-  onAddToDiagram?: () => void;
-  activeDiagram?: Diagram;
   disableActions?: boolean;
   onContextMenu?: (element: Element, clientPosition: { x: number; y: number }) => void;
 }
@@ -40,11 +58,6 @@ export function ModelBrowser({
   onRenameSubmit,
   onRenameCancel,
   onSelect,
-  onCreatePackage,
-  onCreateBlock,
-  onDelete,
-  onAddToDiagram,
-  activeDiagram,
   disableActions,
   onContextMenu,
 }: ModelBrowserProps) {
@@ -70,6 +83,7 @@ export function ModelBrowser({
           const isRenaming = node.element.id === renamingId;
           const accent = accentForMetaclass(node.element.metaclass);
           const accentStyle = { '--accent-color': accent } as CSSProperties;
+          const glyph = glyphForMetaclass(node.element.metaclass);
           const stereotypeLabel = node.element.stereotypes?.length
             ? node.element.stereotypes.map((item) => `«${item}»`).join(', ')
             : `<${node.element.metaclass}>`;
@@ -86,6 +100,7 @@ export function ModelBrowser({
                 <div className={`tree__item${isSelected ? ' tree__item--selected' : ''}`} style={accentStyle}>
                   <span className="tree__rail" aria-hidden="true" />
                   <span className="tree__icon" aria-hidden="true">{node.children.length ? '▸' : '•'}</span>
+                  <span className="tree__glyph" aria-hidden="true">{glyph}</span>
                   <div className="tree__text">
                     <div className="tree__line">
                       <input
@@ -126,6 +141,7 @@ export function ModelBrowser({
                 >
                   <span className="tree__rail" aria-hidden="true" />
                   <span className="tree__icon" aria-hidden="true">{node.children.length ? '▸' : '•'}</span>
+                  <span className="tree__glyph" aria-hidden="true">{glyph}</span>
                   <div className="tree__text">
                     <div className="tree__line">
                       <span className="tree__title">{node.element.name}</span>
@@ -147,35 +163,23 @@ export function ModelBrowser({
 
   return (
     <div className="model-browser">
-      <div className="model-browser__actions">
-        <button type="button" className="button" onClick={onCreatePackage} disabled={disableActions}>
-          New Package
-        </button>
-        <button type="button" className="button" onClick={onCreateBlock} disabled={disableActions}>
-          New Block
-        </button>
-        <button type="button" className="button button--ghost" onClick={onDelete} disabled={!onDelete || disableActions}>
-          Delete
-        </button>
-        <button
-          type="button"
-          className="button button--ghost"
-          onClick={onAddToDiagram}
-          disabled={!onAddToDiagram || !activeDiagram || disableActions}
-        >
-          Add to diagram
-        </button>
+      <div className="model-browser__search" role="search">
+        <label className="label" htmlFor="model-search">
+          Containment search
+        </label>
+        <div className="model-browser__search-input">
+          <span aria-hidden="true">🔍</span>
+          <input
+            id="model-search"
+            type="search"
+            value={search}
+            onChange={(event) => onSearch(event.target.value)}
+            placeholder="Type to filter elements"
+            disabled={disableActions}
+          />
+        </div>
+        <div className="model-browser__hint">Right-click anywhere in the tree to create or manage elements.</div>
       </div>
-      <label className="label" htmlFor="model-search">
-        Search
-      </label>
-      <input
-        id="model-search"
-        type="search"
-        value={search}
-        onChange={(event) => onSearch(event.target.value)}
-        placeholder="Filter by name"
-      />
       <div className="tree-container">{renderNodes(filtered)}</div>
     </div>
   );
