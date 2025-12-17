@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { Diagram, Element } from '@cameotest/shared';
 import { DraggedElementPayload, ELEMENT_DRAG_MIME } from '../dragTypes';
@@ -71,6 +71,23 @@ export function ModelBrowser({
   onDropOnOwner,
 }: ModelBrowserProps) {
   const normalizedSearch = search.trim().toLowerCase();
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const collectIds = (nodes: ModelBrowserNode[], acc: Set<string>) => {
+      nodes.forEach((node) => {
+        const nodeId = node.kind === 'element' ? node.element.id : node.diagram.id;
+        acc.add(nodeId);
+        collectIds(node.children, acc);
+      });
+    };
+
+    const next = new Set(expandedIds);
+    collectIds(tree, next);
+    if (next.size !== expandedIds.size) {
+      setExpandedIds(next);
+    }
+  }, [expandedIds, tree]);
 
   const filtered = useMemo(() => {
     const filterNodes = (nodes: ModelBrowserNode[]): ModelBrowserNode[] => {
@@ -111,6 +128,7 @@ export function ModelBrowser({
           const nodeId = isElement ? node.element.id : node.diagram.id;
           const isSelected = isElement ? node.element.id === selectedId : node.diagram.id === selectedDiagramId;
           const isRenaming = isElement && node.element.id === renamingId;
+          const isExpanded = expandedIds.has(nodeId);
           const accent = accentForMetaclass(isElement ? node.element.metaclass : 'Diagram');
           const accentStyle = { '--accent-color': accent } as CSSProperties;
           const glyph = glyphForMetaclass(isElement ? node.element.metaclass : 'Diagram');
@@ -137,12 +155,33 @@ export function ModelBrowser({
             event.dataTransfer.effectAllowed = 'copyMove';
             event.dataTransfer.setData(ELEMENT_DRAG_MIME, JSON.stringify(payload));
           };
+          const toggleExpanded = () => {
+            if (node.children.length === 0) return;
+            setExpandedIds((current) => {
+              const next = new Set(current);
+              if (next.has(nodeId)) {
+                next.delete(nodeId);
+              } else {
+                next.add(nodeId);
+              }
+              return next;
+            });
+          };
+
           return (
             <li key={nodeId}>
               {isRenaming ? (
                 <div className={`tree__item${isSelected ? ' tree__item--selected' : ''}`} style={accentStyle}>
                   <span className="tree__rail" aria-hidden="true" />
-                  <span className="tree__icon" aria-hidden="true">{node.children.length ? '▸' : '•'}</span>
+                  <button
+                    type="button"
+                    className="tree__icon"
+                    aria-label={isExpanded ? 'Collapse children' : 'Expand children'}
+                    onClick={toggleExpanded}
+                    disabled={node.children.length === 0}
+                  >
+                    {node.children.length ? (isExpanded ? '▾' : '▸') : '•'}
+                  </button>
                   <span className="tree__glyph" aria-hidden="true">{glyph}</span>
                   <div className="tree__text">
                     <div className="tree__line">
@@ -186,7 +225,18 @@ export function ModelBrowser({
                   }}
                 >
                   <span className="tree__rail" aria-hidden="true" />
-                  <span className="tree__icon" aria-hidden="true">{node.children.length ? '▸' : '•'}</span>
+                  <button
+                    type="button"
+                    className="tree__icon"
+                    aria-label={isExpanded ? 'Collapse children' : 'Expand children'}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleExpanded();
+                    }}
+                    disabled={node.children.length === 0}
+                  >
+                    {node.children.length ? (isExpanded ? '▾' : '▸') : '•'}
+                  </button>
                   <span className="tree__glyph" aria-hidden="true">{glyph}</span>
                   <div className="tree__text">
                     <div className="tree__line">
@@ -199,7 +249,7 @@ export function ModelBrowser({
                   </div>
                 </button>
               )}
-              {node.children.length > 0 ? renderNodes(node.children) : null}
+              {node.children.length > 0 && isExpanded ? renderNodes(node.children) : null}
             </li>
           );
         })}
