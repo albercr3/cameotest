@@ -63,15 +63,24 @@ async function postJson<T>(url: string, body?: unknown): Promise<T> {
   return parseResponse<T>(response);
 }
 
+async function deleteJson(url: string): Promise<void> {
+  const response = await fetch(url, { method: 'DELETE' });
+  await parseResponse(response);
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  const hasBody = text.trim().length > 0;
   let payload: any = null;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
+  if (hasBody) {
+    try {
+      payload = JSON.parse(text);
+    } catch (error) {
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+      throw error as Error;
     }
-    throw error as Error;
   }
   if (!response.ok) {
     const message = payload?.message ?? `Request failed with status ${response.status}`;
@@ -143,6 +152,7 @@ export default function App() {
   const [loadingExample, setLoadingExample] = useState(false);
   const [importingWorkspace, setImportingWorkspace] = useState(false);
   const [importingSysml, setImportingSysml] = useState(false);
+  const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ kind: 'error' | 'info'; messages: string[] } | null>(null);
   const [autosaveEnabled, setAutosaveEnabled] = useState(true);
   const [autosaveError, setAutosaveError] = useState<string | null>(null);
@@ -1054,6 +1064,28 @@ export default function App() {
       console.error(error);
       setBanner({ kind: 'error', messages: [error instanceof Error ? error.message : String(error)] });
       setStatus('Unable to create workspace');
+    }
+  };
+
+  const removeWorkspace = async (id: string, name: string) => {
+    if (!window.confirm(`Delete workspace "${name}"? This cannot be undone.`)) return;
+    setDeletingWorkspaceId(id);
+    try {
+      setStatus(`Deleting workspace "${name}"...`);
+      await deleteJson(`/api/workspaces/${id}`);
+      if (activeId === id) {
+        resetToLanding();
+      }
+      await refreshWorkspaces();
+      showToast(`Deleted workspace "${name}"`, 'info');
+      setStatus('Ready');
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : String(error);
+      setBanner({ kind: 'error', messages: ['Unable to delete workspace', message] });
+      setStatus('Unable to delete workspace');
+    } finally {
+      setDeletingWorkspaceId(null);
     }
   };
 
@@ -2638,20 +2670,6 @@ export default function App() {
                 <span className="layout-controls__label">View</span>
                 <button
                   type="button"
-                  className={`chip-toggle${showContainment ? ' chip-toggle--active' : ''}`}
-                  onClick={() => setShowContainment((value) => !value)}
-                >
-                  {showContainment ? 'Hide containment' : 'Show containment'}
-                </button>
-                <button
-                  type="button"
-                  className={`chip-toggle${showPropertiesPanel ? ' chip-toggle--active' : ''}`}
-                  onClick={() => setShowPropertiesPanel((value) => !value)}
-                >
-                  {showPropertiesPanel ? 'Hide properties' : 'Show properties'}
-                </button>
-                <button
-                  type="button"
                   className={`chip-toggle chip-toggle--accent${canvasFocused ? ' chip-toggle--active' : ''}`}
                   onClick={() => {
                     if (canvasFocused) {
@@ -2668,38 +2686,48 @@ export default function App() {
               </div>
               <div className="layout-controls__hint">
                 {canvasFocused
-                  ? 'Canvas is expanded — reopen panels to navigate the model and edit properties.'
-                  : 'Toggle panels to remix the layout. Collapse everything to immerse in the canvas.'}
+                  ? 'Canvas is expanded — use the edge chevrons to reopen containment and properties.'
+                  : 'Use the < and > handles on the panel edges to collapse or reopen side panels.'}
               </div>
             </div>
             <main className="layout layout--three" style={{ gridTemplateColumns: layoutColumns }}>
               {showContainment ? (
-                <Panel title="Containment" subtitle="Tree navigation inspired by Cameo">
-                  <ModelBrowser
-                    tree={tree}
-                    search={search}
-                    onSearch={setSearch}
-                    selectedId={selectedElementId}
-                    renamingId={renameState?.source === 'tree' ? renameState.targetId : undefined}
-                    renameDraft={renameState?.source === 'tree' ? renameState.draft : undefined}
-                    onRenameChange={handleRenameChange}
-                    onRenameSubmit={handleRenameSubmit}
-                    onRenameCancel={handleRenameCancel}
-                    onSelect={selectElement}
-                    onCreatePackage={() => createElement('Package')}
-                    onCreateBlock={() => createElement('Block')}
-                    onDelete={selectedElementId ? handleDelete : undefined}
-                    onAddToDiagram={
-                      selectedElementId && canAddElementToDiagram
-                        ? () => addToDiagram(selectedElementId)
-                        : undefined
-                    }
-                    activeDiagram={activeDiagram}
-                    disableActions={!payload}
-                    onContextMenu={handleTreeContextMenu}
-                  />
-                </Panel>
-              ) : null}
+                <div className="panel-with-toggle">
+                  <Panel title="Containment" subtitle="Tree navigation inspired by Cameo">
+                    <ModelBrowser
+                      tree={tree}
+                      search={search}
+                      onSearch={setSearch}
+                      selectedId={selectedElementId}
+                      renamingId={renameState?.source === 'tree' ? renameState.targetId : undefined}
+                      renameDraft={renameState?.source === 'tree' ? renameState.draft : undefined}
+                      onRenameChange={handleRenameChange}
+                      onRenameSubmit={handleRenameSubmit}
+                      onRenameCancel={handleRenameCancel}
+                      onSelect={selectElement}
+                      disableActions={!payload}
+                      onContextMenu={handleTreeContextMenu}
+                    />
+                  </Panel>
+                  <button
+                    type="button"
+                    className="panel-toggle panel-toggle--right"
+                    aria-label="Hide containment panel"
+                    onClick={() => setShowContainment(false)}
+                  >
+                    ‹
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="panel-toggle panel-toggle--left panel-toggle--floating"
+                  aria-label="Show containment panel"
+                  onClick={() => setShowContainment(true)}
+                >
+                  ›
+                </button>
+              )}
               <Panel title={workspaceTitleNode} subtitle={payload?.manifest.description}>
                 <p className="lede">
                   {payload
@@ -2794,80 +2822,99 @@ export default function App() {
                 )}
               </Panel>
               {showPropertiesPanel ? (
-                <Panel
-                  title="Properties"
-                  subtitle={propertiesSubtitle}
-                  actions={
-                    <>
-                      <button className="button button--ghost" type="button" onClick={toggleCodeDrawer} disabled={!selectedElement}>
-                        {codeDrawerOpen ? 'Hide code' : 'Code'}
-                      </button>
-                      <button
-                        className="button button--ghost"
-                        type="button"
-                        onClick={() => setPropertiesCollapsed((value) => !value)}
-                      >
-                        {propertiesCollapsed ? 'Show' : 'Hide'} properties
-                      </button>
-                    </>
-                  }
+                <div className="panel-with-toggle panel-with-toggle--right">
+                  <Panel
+                    title="Properties"
+                    subtitle={propertiesSubtitle}
+                    actions={
+                      <>
+                        <button className="button button--ghost" type="button" onClick={toggleCodeDrawer} disabled={!selectedElement}>
+                          {codeDrawerOpen ? 'Hide code' : 'Code'}
+                        </button>
+                        <button
+                          className="button button--ghost"
+                          type="button"
+                          onClick={() => setPropertiesCollapsed((value) => !value)}
+                        >
+                          {propertiesCollapsed ? 'Show' : 'Hide'} properties
+                        </button>
+                      </>
+                    }
+                  >
+                    {propertiesCollapsed ? (
+                      <div className="empty-state">Properties hidden. Use the toggle above to reopen.</div>
+                    ) : (
+                      <PropertiesPanel
+                        selection={selection}
+                        element={selectedElement}
+                        relationship={selectedRelationship}
+                        elements={elementsById}
+                        relatedRelationships={relatedRelationships}
+                        metaclasses={metaclasses}
+                        relationshipTypes={relationshipTypes}
+                        relationshipCreationTypes={relationshipCreationTypes}
+                        onSelect={setSelection}
+                        onElementChange={(updates) => selectedElementId && updateElement(selectedElementId, updates)}
+                        onRelationshipChange={(updates) =>
+                          selectedRelationshipId && updateRelationship(selectedRelationshipId, updates)
+                        }
+                        onConnectorItemFlowChange={
+                          selectedRelationship?.type === 'Connector'
+                            ? (value) => updateConnectorItemFlow(selectedRelationship.id, value)
+                            : undefined
+                        }
+                        onCreateRelationship={
+                          selectedElement
+                            ? (type, targetId) => createRelationship(type, selectedElement.id, targetId)
+                            : undefined
+                        }
+                        onDeleteRelationship={handleDeleteRelationship}
+                        onAddToDiagram={
+                          selectedElementId && canAddElementToDiagram
+                            ? () => addToDiagram(selectedElementId, { position: diagramCenterPosition() })
+                            : undefined
+                        }
+                        onAddPort={
+                          (selectedIsBlock || selectedIsPart) && selectedElement
+                            ? () => createPort(selectedElement.id)
+                            : undefined
+                        }
+                        onCreatePart={
+                          selectedIsBlock &&
+                          selectedElement &&
+                          activeDiagram &&
+                          isIbdDiagram(activeDiagram) &&
+                          activeDiagram.contextBlockId
+                            ? () => createPart(activeDiagram.contextBlockId!, selectedElement.id)
+                            : undefined
+                        }
+                        onCreateIbd={
+                          selectedIsBlock && selectedElement
+                            ? () => createIbdDiagramForBlock(selectedElement)
+                            : undefined
+                        }
+                      />
+                    )}
+                  </Panel>
+                  <button
+                    type="button"
+                    className="panel-toggle panel-toggle--left"
+                    aria-label="Hide properties panel"
+                    onClick={() => setShowPropertiesPanel(false)}
+                  >
+                    ›
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="panel-toggle panel-toggle--right panel-toggle--floating"
+                  aria-label="Show properties panel"
+                  onClick={() => setShowPropertiesPanel(true)}
                 >
-                  {propertiesCollapsed ? (
-                    <div className="empty-state">Properties hidden. Use the toggle above to reopen.</div>
-                  ) : (
-                    <PropertiesPanel
-                      selection={selection}
-                      element={selectedElement}
-                      relationship={selectedRelationship}
-                      elements={elementsById}
-                      relatedRelationships={relatedRelationships}
-                      metaclasses={metaclasses}
-                      relationshipTypes={relationshipTypes}
-                      relationshipCreationTypes={relationshipCreationTypes}
-                      onSelect={setSelection}
-                      onElementChange={(updates) => selectedElementId && updateElement(selectedElementId, updates)}
-                      onRelationshipChange={(updates) =>
-                        selectedRelationshipId && updateRelationship(selectedRelationshipId, updates)
-                      }
-                      onConnectorItemFlowChange={
-                        selectedRelationship?.type === 'Connector'
-                          ? (value) => updateConnectorItemFlow(selectedRelationship.id, value)
-                          : undefined
-                      }
-                      onCreateRelationship={
-                        selectedElement
-                          ? (type, targetId) => createRelationship(type, selectedElement.id, targetId)
-                          : undefined
-                      }
-                      onDeleteRelationship={handleDeleteRelationship}
-                      onAddToDiagram={
-                        selectedElementId && canAddElementToDiagram
-                          ? () => addToDiagram(selectedElementId, { position: diagramCenterPosition() })
-                          : undefined
-                      }
-                      onAddPort={
-                        (selectedIsBlock || selectedIsPart) && selectedElement
-                          ? () => createPort(selectedElement.id)
-                          : undefined
-                      }
-                      onCreatePart={
-                        selectedIsBlock &&
-                        selectedElement &&
-                        activeDiagram &&
-                        isIbdDiagram(activeDiagram) &&
-                        activeDiagram.contextBlockId
-                          ? () => createPart(activeDiagram.contextBlockId!, selectedElement.id)
-                          : undefined
-                      }
-                      onCreateIbd={
-                        selectedIsBlock && selectedElement
-                          ? () => createIbdDiagramForBlock(selectedElement)
-                          : undefined
-                      }
-                    />
-                  )}
-                </Panel>
-              ) : null}
+                  ‹
+                </button>
+              )}
             </main>
           </>
         ) : (
@@ -2938,9 +2985,23 @@ export default function App() {
                       <div className="workspace-card__id">{workspace.id}</div>
                     </div>
                     <div className="workspace-card__meta">Updated {workspace.updatedAt}</div>
-                    <button className="button button--ghost" type="button" onClick={() => selectWorkspace(workspace.id)}>
-                      Open workspace
-                    </button>
+                    <div className="workspace-card__actions">
+                      <button
+                        className="button button--ghost"
+                        type="button"
+                        onClick={() => selectWorkspace(workspace.id)}
+                      >
+                        Open workspace
+                      </button>
+                      <button
+                        className="button button--ghost button--danger"
+                        type="button"
+                        disabled={deletingWorkspaceId === workspace.id}
+                        onClick={() => removeWorkspace(workspace.id, workspace.name)}
+                      >
+                        {deletingWorkspaceId === workspace.id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
