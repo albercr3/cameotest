@@ -70,6 +70,9 @@ export function ModelBrowser({
           const isRenaming = node.element.id === renamingId;
           const accent = accentForMetaclass(node.element.metaclass);
           const accentStyle = { '--accent-color': accent } as CSSProperties;
+          const stereotypeLabel = node.element.stereotypes?.length
+            ? node.element.stereotypes.map((item) => `«${item}»`).join(', ')
+            : `<${node.element.metaclass}>`;
           const handleDragStart = (event: React.DragEvent) => {
             event.dataTransfer.effectAllowed = 'copy';
             event.dataTransfer.setData(
@@ -81,27 +84,32 @@ export function ModelBrowser({
             <li key={node.element.id}>
               {isRenaming ? (
                 <div className={`tree__item${isSelected ? ' tree__item--selected' : ''}`} style={accentStyle}>
-                  <span className="tree__accent" aria-hidden="true" />
-                  <span className="tree__icon" aria-hidden="true">{node.children.length ? '📁' : '📄'}</span>
+                  <span className="tree__rail" aria-hidden="true" />
+                  <span className="tree__icon" aria-hidden="true">{node.children.length ? '▸' : '•'}</span>
                   <div className="tree__text">
-                    <input
-                      className="tree__rename"
-                      value={renameDraft ?? ''}
-                      onChange={(event) => onRenameChange?.(event.target.value)}
-                      onBlur={() => onRenameCancel?.()}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault();
-                          onRenameSubmit?.(renameDraft ?? '');
-                        }
-                        if (event.key === 'Escape') {
-                          event.preventDefault();
-                          onRenameCancel?.();
-                        }
-                      }}
-                      autoFocus
-                    />
-                    <span className="tree__meta">{node.element.metaclass}</span>
+                    <div className="tree__line">
+                      <input
+                        className="tree__rename"
+                        value={renameDraft ?? ''}
+                        onChange={(event) => onRenameChange?.(event.target.value)}
+                        onBlur={() => onRenameCancel?.()}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            onRenameSubmit?.(renameDraft ?? '');
+                          }
+                          if (event.key === 'Escape') {
+                            event.preventDefault();
+                            onRenameCancel?.();
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <span className="tree__separator" aria-hidden="true">
+                        ::
+                      </span>
+                      <span className="tree__meta">{stereotypeLabel}</span>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -116,11 +124,16 @@ export function ModelBrowser({
                     onContextMenu?.(node.element, { x: event.clientX, y: event.clientY });
                   }}
                 >
-                  <span className="tree__accent" aria-hidden="true" />
-                  <span className="tree__icon" aria-hidden="true">{node.children.length ? '📁' : '📄'}</span>
+                  <span className="tree__rail" aria-hidden="true" />
+                  <span className="tree__icon" aria-hidden="true">{node.children.length ? '▸' : '•'}</span>
                   <div className="tree__text">
-                    <span className="tree__title">{node.element.name}</span>
-                    <span className="tree__meta">{node.element.metaclass}</span>
+                    <div className="tree__line">
+                      <span className="tree__title">{node.element.name}</span>
+                      <span className="tree__separator" aria-hidden="true">
+                        ::
+                      </span>
+                      <span className="tree__meta">{stereotypeLabel}</span>
+                    </div>
                   </div>
                 </button>
               )}

@@ -53,6 +53,15 @@ function nextAvailableWorkspaceId(id: string) {
   return candidate;
 }
 
+function deleteWorkspaceDir(id: string) {
+  const target = path.join(workspacesDir, id);
+  if (!fs.existsSync(target)) {
+    return false;
+  }
+  fs.rmSync(target, { recursive: true, force: true });
+  return true;
+}
+
 function loadManifest(id: string): WorkspaceManifest {
   const manifestPath = path.join(workspacesDir, id, 'workspace.json');
   const content = fs.readFileSync(manifestPath, 'utf-8');
@@ -148,6 +157,19 @@ app.post('/api/workspaces', (req, res) => {
   writeWorkspace(starter);
   currentWorkspaceId = manifest.id;
   res.status(201).json(manifest);
+});
+
+app.delete('/api/workspaces/:id', (req, res) => {
+  const { id: rawId } = req.params;
+  const id = sanitizeWorkspaceId(rawId);
+  const removed = deleteWorkspaceDir(id);
+  if (!removed) {
+    return res.status(404).json({ message: `Workspace ${id} not found` });
+  }
+  if (currentWorkspaceId === id) {
+    currentWorkspaceId = null;
+  }
+  res.status(204).end();
 });
 
 app.post('/api/workspaces/:id/open', (req, res) => {
