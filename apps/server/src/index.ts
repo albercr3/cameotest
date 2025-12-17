@@ -127,6 +127,64 @@ function writeWorkspace(files: WorkspaceFiles) {
   fs.writeFileSync(path.join(dir, 'diagrams.json'), JSON.stringify(files.diagrams, null, 2));
 }
 
+function starterWorkspace(manifest: WorkspaceManifest): WorkspaceFiles {
+  const now = new Date().toISOString();
+  const rootBlockId = uuid();
+  const signalId = uuid();
+  const diagramId = uuid();
+  const rootNodeId = uuid();
+  const rootBlock = {
+    id: rootBlockId,
+    metaclass: 'Block' as const,
+    name: 'RootModel',
+    ownerId: null,
+    documentation: 'Base block for the workspace. Create child elements underneath.',
+    stereotypes: [],
+    tags: {},
+    createdAt: now,
+    updatedAt: now,
+  } satisfies ModelFile['elements'][number];
+
+  const baseSignal = {
+    id: signalId,
+    metaclass: 'Signal' as const,
+    name: 'DefaultSignal',
+    ownerId: rootBlockId,
+    documentation: 'Starter signal to type ports.',
+    stereotypes: [],
+    tags: {},
+    createdAt: now,
+    updatedAt: now,
+  } satisfies ModelFile['elements'][number];
+
+  const starterDiagram = {
+    id: diagramId,
+    name: `${manifest.name} BDD`,
+    kind: 'BDD' as const,
+    type: 'BDD' as const,
+    ownerId: rootBlockId,
+    nodes: [
+      {
+        id: rootNodeId,
+        elementId: rootBlockId,
+        kind: 'Element' as const,
+        x: 320,
+        y: 180,
+        w: 240,
+        h: 140,
+      },
+    ],
+    edges: [],
+    viewSettings: { gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 },
+  } satisfies DiagramsFile['diagrams'][number];
+
+  return {
+    manifest,
+    model: { elements: [rootBlock, baseSignal], relationships: [] },
+    diagrams: { diagrams: [starterDiagram] },
+  } satisfies WorkspaceFiles;
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
@@ -149,11 +207,7 @@ app.post('/api/workspaces', (req, res) => {
     createdAt: now,
     updatedAt: now,
   };
-  const starter: WorkspaceFiles = {
-    manifest,
-    model: { elements: [], relationships: [] },
-    diagrams: { diagrams: [] },
-  };
+  const starter = starterWorkspace(manifest);
   writeWorkspace(starter);
   currentWorkspaceId = manifest.id;
   res.status(201).json(manifest);

@@ -20,6 +20,7 @@ interface DiagramCanvasProps {
   onCanvasContextMenu?: (
     payload: { clientX: number; clientY: number; position: { x: number; y: number } },
   ) => void;
+  onNodeContextMenu?: (payload: { elementId: string; clientX: number; clientY: number }) => void;
   onPartContextMenu?: (
     payload: { elementId: string; clientX: number; clientY: number; position: { x: number; y: number } },
   ) => void;
@@ -44,6 +45,7 @@ export function DiagramCanvas({
   onPortSelect,
   onDropElement,
   onCanvasContextMenu,
+  onNodeContextMenu,
   onPartContextMenu,
   onChange,
 }: DiagramCanvasProps) {
@@ -767,18 +769,21 @@ export function DiagramCanvas({
             onPointerDown={handleIbdCanvasPointerDown}
           >
             <g transform={`translate(${view.panX} ${view.panY}) scale(${view.zoom})`}>
-              <rect
-                x={frame.x}
-                y={frame.y}
-                width={frame.w}
-                height={frame.h}
-                className={`ibd-frame${frameSelected ? ' diagram-node--selected' : ''}`}
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  onSelectElement?.(diagram.contextBlockId);
-                  onSelectNodes?.([]);
-                }}
-              />
+                <rect
+                  x={frame.x}
+                  y={frame.y}
+                  width={frame.w}
+                  height={frame.h}
+                  className={`ibd-frame${frameSelected ? ' diagram-node--selected' : ''}`}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    if (event.button === 0 && !event.shiftKey) {
+                      startPan(event);
+                    }
+                    onSelectElement?.(diagram.contextBlockId);
+                    onSelectNodes?.([]);
+                  }}
+                />
               <text x={frame.x + 12} y={frame.y + 24} className="diagram-node__title">
                 {contextBlock?.name ?? 'Block'}
               </text>
@@ -989,6 +994,9 @@ export function DiagramCanvas({
               const accent = accentForMetaclass(element?.metaclass);
               const accentStyle = { '--node-accent': accent } as React.CSSProperties;
               const missing = !element;
+              const metaclassClass = element?.metaclass
+                ? ` diagram-node--${element.metaclass.toLowerCase()}`
+                : '';
               const isSelected = selectedNodeIds.includes(node.id) || (selection?.kind === 'element' && element?.id === selection.id);
               const selectedRelationship =
                 selection?.kind === 'relationship' ? relationships[selection.id] : undefined;
@@ -1003,9 +1011,13 @@ export function DiagramCanvas({
                   transform={`translate(${node.x} ${node.y})`}
                   className={`diagram-node${isSelected ? ' diagram-node--selected' : ''}${
                     missing ? ' diagram-node--missing' : ''
-                  }${isRelated ? ' diagram-node--related' : ''}`}
+                  }${isRelated ? ' diagram-node--related' : ''}${metaclassClass}`}
                   style={accentStyle}
                   onPointerDown={(event) => handlePointerDown(event, node.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    onNodeContextMenu?.({ elementId: node.elementId, clientX: event.clientX, clientY: event.clientY });
+                  }}
                 >
                   <rect width={node.w} height={node.h} rx={8} ry={8} />
                   <rect className="diagram-node__accent" width={node.w} height={6} rx={6} ry={6} />

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
-import type { Element } from '@cameotest/shared';
+import type { Diagram, Element } from '@cameotest/shared';
 import { ELEMENT_DRAG_MIME } from '../dragTypes';
 import { accentForMetaclass } from '../styles/accents';
 
@@ -16,6 +16,10 @@ const glyphForMetaclass = (metaclass: Element['metaclass'] | string) => {
       return '◎';
     case 'Requirement':
       return '📝';
+    case 'Signal':
+      return '📡';
+    case 'Diagram':
+      return '🗺️';
     case 'InterfaceBlock':
       return '⧉';
     case 'Actor':
@@ -27,22 +31,23 @@ const glyphForMetaclass = (metaclass: Element['metaclass'] | string) => {
   }
 };
 
-export interface ModelBrowserNode {
-  element: Element;
-  children: ModelBrowserNode[];
-}
+export type ModelBrowserNode =
+  | { kind: 'element'; element: Element; children: ModelBrowserNode[] }
+  | { kind: 'diagram'; diagram: Diagram; children: ModelBrowserNode[] };
 
 interface ModelBrowserProps {
   tree: ModelBrowserNode[];
   search: string;
   onSearch: (value: string) => void;
   selectedId?: string;
+  selectedDiagramId?: string;
   renamingId?: string;
   renameDraft?: string;
   onRenameChange?: (value: string) => void;
   onRenameSubmit?: (value: string) => void;
   onRenameCancel?: () => void;
   onSelect: (id: string) => void;
+  onSelectDiagram?: (id: string) => void;
   disableActions?: boolean;
   onContextMenu?: (element: Element, clientPosition: { x: number; y: number }) => void;
 }
@@ -52,12 +57,14 @@ export function ModelBrowser({
   search,
   onSearch,
   selectedId,
+  selectedDiagramId,
   renamingId,
   renameDraft,
   onRenameChange,
   onRenameSubmit,
   onRenameCancel,
   onSelect,
+  onSelectDiagram,
   disableActions,
   onContextMenu,
 }: ModelBrowserProps) {
@@ -68,7 +75,8 @@ export function ModelBrowser({
       return nodes
         .map((node) => ({ ...node, children: filterNodes(node.children) }))
         .filter((node) => {
-          const matches = node.element.name.toLowerCase().includes(normalizedSearch);
+          const name = node.kind === 'diagram' ? node.diagram.name : node.element.name;
+          const matches = name.toLowerCase().includes(normalizedSearch);
           return matches || node.children.length > 0 || normalizedSearch.length === 0;
         });
     };
@@ -79,15 +87,21 @@ export function ModelBrowser({
     return (
       <ul className="tree">
         {nodes.map((node) => {
-          const isSelected = node.element.id === selectedId;
-          const isRenaming = node.element.id === renamingId;
-          const accent = accentForMetaclass(node.element.metaclass);
+          const isElement = node.kind === 'element';
+          const nodeId = isElement ? node.element.id : node.diagram.id;
+          const isSelected = isElement ? node.element.id === selectedId : node.diagram.id === selectedDiagramId;
+          const isRenaming = isElement && node.element.id === renamingId;
+          const accent = accentForMetaclass(isElement ? node.element.metaclass : 'Diagram');
           const accentStyle = { '--accent-color': accent } as CSSProperties;
-          const glyph = glyphForMetaclass(node.element.metaclass);
-          const stereotypeLabel = node.element.stereotypes?.length
-            ? node.element.stereotypes.map((item) => `«${item}»`).join(', ')
-            : `<${node.element.metaclass}>`;
+          const glyph = glyphForMetaclass(isElement ? node.element.metaclass : 'Diagram');
+          const metaLabel = isElement
+            ? node.element.stereotypes?.length
+              ? node.element.stereotypes.map((item) => `«${item}»`).join(', ')
+              : `<${node.element.metaclass}>`
+            : `${node.diagram.kind} diagram`;
+          const title = isElement ? node.element.name : node.diagram.name;
           const handleDragStart = (event: React.DragEvent) => {
+            if (!isElement) return;
             event.dataTransfer.effectAllowed = 'copy';
             event.dataTransfer.setData(
               ELEMENT_DRAG_MIME,
@@ -95,7 +109,7 @@ export function ModelBrowser({
             );
           };
           return (
-            <li key={node.element.id}>
+            <li key={nodeId}>
               {isRenaming ? (
                 <div className={`tree__item${isSelected ? ' tree__item--selected' : ''}`} style={accentStyle}>
                   <span className="tree__rail" aria-hidden="true" />
@@ -123,7 +137,7 @@ export function ModelBrowser({
                       <span className="tree__separator" aria-hidden="true">
                         ::
                       </span>
-                      <span className="tree__meta">{stereotypeLabel}</span>
+                      <span className="tree__meta">{metaLabel}</span>
                     </div>
                   </div>
                 </div>
@@ -131,10 +145,11 @@ export function ModelBrowser({
                 <button
                   className={`tree__item${isSelected ? ' tree__item--selected' : ''}`}
                   style={accentStyle}
-                  onClick={() => onSelect(node.element.id)}
-                  draggable
+                  onClick={() => (isElement ? onSelect(node.element.id) : onSelectDiagram?.(node.diagram.id))}
+                  draggable={isElement}
                   onDragStart={handleDragStart}
                   onContextMenu={(event) => {
+                    if (!isElement) return;
                     event.preventDefault();
                     onContextMenu?.(node.element, { x: event.clientX, y: event.clientY });
                   }}
@@ -144,11 +159,11 @@ export function ModelBrowser({
                   <span className="tree__glyph" aria-hidden="true">{glyph}</span>
                   <div className="tree__text">
                     <div className="tree__line">
-                      <span className="tree__title">{node.element.name}</span>
+                      <span className="tree__title">{title}</span>
                       <span className="tree__separator" aria-hidden="true">
                         ::
                       </span>
-                      <span className="tree__meta">{stereotypeLabel}</span>
+                      <span className="tree__meta">{metaLabel}</span>
                     </div>
                   </div>
                 </button>
