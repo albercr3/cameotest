@@ -16,6 +16,7 @@ interface DiagramCanvasProps {
   onSelectNodes?: (nodeIds: string[]) => void;
   connectMode?: boolean;
   onPortSelect?: (portId: string, nodeId: string) => void;
+  onPortContextMenu?: (payload: { elementId: string; clientX: number; clientY: number }) => void;
   onDropElement?: (payload: DraggedElementPayload, position: { x: number; y: number }) => void;
   onCanvasContextMenu?: (
     payload: { clientX: number; clientY: number; position: { x: number; y: number } },
@@ -43,6 +44,7 @@ export function DiagramCanvas({
   onSelectNodes,
   connectMode,
   onPortSelect,
+  onPortContextMenu,
   onDropElement,
   onCanvasContextMenu,
   onNodeContextMenu,
@@ -531,6 +533,7 @@ export function DiagramCanvas({
     if (!payloadText) return;
     try {
       const payload = JSON.parse(payloadText) as DraggedElementPayload;
+      if (payload.nodeKind === 'diagram') return;
       onDropElement?.(payload, toDiagramPoint(event));
     } catch {
       /* ignore malformed payloads */
@@ -900,12 +903,16 @@ export function DiagramCanvas({
                     cursor: draggingPortId === node.id ? 'grabbing' : 'grab',
                   } as React.CSSProperties;
                   return (
-                    <g
-                      key={node.id}
-                      className={portClass}
-                      onPointerDown={(event) => handlePortPointerDown(event, node.id)}
-                      style={portStyle}
-                    >
+                  <g
+                    key={node.id}
+                    className={portClass}
+                    onPointerDown={(event) => handlePortPointerDown(event, node.id)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      onPortContextMenu?.({ elementId: node.elementId, clientX: event.clientX, clientY: event.clientY });
+                    }}
+                    style={portStyle}
+                  >
                       {isPartPort ? (
                         <rect x={position.x - 7} y={position.y - 7} width={14} height={14} rx={3} ry={3} />
                       ) : (

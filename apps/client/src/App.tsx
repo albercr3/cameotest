@@ -48,7 +48,8 @@ type ContextMenuState =
       y: number;
       elementId: string;
       position: { x: number; y: number };
-    };
+    }
+  | { kind: 'port'; x: number; y: number; elementId: string };
 
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -464,7 +465,8 @@ export default function App() {
 
     elementNodes.forEach((node) => attachNode(node, node.element.ownerId));
     payload.diagrams.diagrams.forEach((diagram) => {
-      attachNode({ kind: 'diagram', diagram, children: [] }, diagram.ownerId);
+      const ownerId = isIbdDiagram(diagram) && diagram.contextBlockId ? diagram.contextBlockId : diagram.ownerId;
+      attachNode({ kind: 'diagram', diagram, children: [] }, ownerId);
     });
     return roots;
   }, [payload]);
@@ -501,6 +503,38 @@ export default function App() {
       return acc;
     }, {});
   }, [payload]);
+
+  const diagramsById = useMemo(() => {
+    if (!payload) return {} as Record<string, Diagram>;
+    return payload.diagrams.diagrams.reduce<Record<string, Diagram>>((acc, diagram) => {
+      acc[diagram.id] = diagram;
+      return acc;
+    }, {});
+  }, [payload]);
+
+  const isAncestorOf = useCallback(
+    (candidateOwnerId: string | null | undefined, elementId: string) => {
+      let current = candidateOwnerId ? elementsById[candidateOwnerId] : undefined;
+      while (current) {
+        if (current.id === elementId) return true;
+        current = current.ownerId ? elementsById[current.ownerId] : undefined;
+      }
+      return false;
+    },
+    [elementsById],
+  );
+
+  const canOwnElement = useCallback(
+    (element: Element, ownerId: string | null) => {
+      const owner = ownerId ? elementsById[ownerId] : undefined;
+      if (element.metaclass === 'Part') return owner?.metaclass === 'Block';
+      if (element.metaclass === 'Port') return owner?.metaclass === 'Block' || owner?.metaclass === 'Part';
+      if (element.metaclass === 'Package') return !owner || owner.metaclass === 'Package';
+      if (element.metaclass === 'Block') return !owner || owner.metaclass === 'Package';
+      return !owner || owner.metaclass === 'Package' || owner.metaclass === 'Block';
+    },
+    [elementsById],
+  );
 
   const selectedElement = useMemo(() => {
     if (!payload || !selection || selection.kind !== 'element') return undefined;
@@ -1636,6 +1670,54 @@ export default function App() {
     });
   };
 
+  const handleTreeDrop = useCallback(
+    (dragPayload: DraggedElementPayload, ownerId: string | null) => {
+      if (!payload) return;
+
+      const movedElement = elementsById[dragPayload.elementId];
+      const movedDiagram = diagramsById[dragPayload.elementId];
+
+      if (!movedElement && !movedDiagram) {
+        showToast('Only known elements and diagrams can be moved', 'error');
+        return;
+      }
+
+      if (movedElement) {
+        if (movedElement.ownerId === ownerId) return;
+        if (ownerId === movedElement.id || isAncestorOf(ownerId, movedElement.id)) {
+          showToast('Cannot move an element inside itself', 'error');
+          return;
+        }
+        if (!canOwnElement(movedElement, ownerId)) {
+          showToast('That container cannot own this element type', 'error');
+          return;
+        }
+        updateElement(movedElement.id, { ownerId });
+        showToast('Element moved in containment', 'info');
+        return;
+      }
+
+      if (movedDiagram) {
+        const kind = diagramKindOf(movedDiagram);
+        if (kind === 'IBD') {
+          if (movedDiagram.contextBlockId !== ownerId) {
+            showToast('IBD diagrams must stay under their context block', 'error');
+            return;
+          }
+          updateDiagram(movedDiagram.id, { ...movedDiagram, ownerId: ownerId ?? movedDiagram.contextBlockId ?? null });
+          return;
+        }
+        const owner = ownerId ? elementsById[ownerId] : undefined;
+        if (owner && owner.metaclass !== 'Package' && owner.metaclass !== 'Block') {
+          showToast('Place diagrams under a package or block', 'error');
+          return;
+        }
+        updateDiagram(movedDiagram.id, { ...movedDiagram, ownerId });
+      }
+    },
+    [canOwnElement, diagramsById, elementsById, isAncestorOf, payload, showToast, updateDiagram, updateElement],
+  );
+
   const handleCreateIbdFromMenu = () => {
     runSafely('Create IBD diagram', () => {
       if (!selectedElement || selectedElement.metaclass !== 'Block') {
@@ -1650,6 +1732,7 @@ export default function App() {
   const handleDropElement = (payload: DraggedElementPayload, position: { x: number; y: number }) => {
     runSafely('Drop onto diagram', () => {
       if (!payload?.elementId || !activeDiagram) return;
+      if (payload.nodeKind === 'diagram') return;
       const element = elementsById[payload.elementId];
       if (!element) {
         showToast('Dropped element not found', 'error');
@@ -1721,6 +1804,11 @@ export default function App() {
     });
   };
 
+  const handlePortContextMenu = (payload: { elementId: string; clientX: number; clientY: number }) => {
+    const position = clampMenuPosition('tree', payload.clientX, payload.clientY);
+    setContextMenu({ kind: 'port', x: position.x, y: position.y, elementId: payload.elementId });
+  };
+
   const diagramCenterPosition = useCallback(() => {
     if (!activeDiagram) return undefined;
     const view = activeDiagram.viewSettings;
@@ -1754,7 +1842,7 @@ export default function App() {
       kind: 'IBD',
       type: 'IBD',
       contextBlockId: block.id,
-      ownerId: block.ownerId,
+      ownerId: block.id,
       nodes: [],
       edges: [],
       viewSettings: { gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 },
@@ -1814,7 +1902,21 @@ export default function App() {
     });
 
     selectRelationship(relationship.id);
+    setPendingConnectorPortId(null);
   };
+
+  const prepareManualConnection = useCallback(
+    (portId: string) => {
+      setPendingConnectorPortId(portId);
+      setConnectMode((current) => {
+        if (!current) {
+          showToast('Select another port to finish the connector', 'info');
+        }
+        return true;
+      });
+    },
+    [showToast],
+  );
 
   const createConnector = (sourcePortId: string, targetPortId: string, diagram?: Diagram) => {
     if (!payload || !diagram || !isIbdDiagram(diagram)) return;
@@ -1873,15 +1975,20 @@ export default function App() {
     runSafely('Connect ports', () => {
       selectElement(portId);
       setSelectedNodeIds([nodeId]);
-      if (connectMode && activeDiagram && isIbdDiagram(activeDiagram)) {
-        if (pendingConnectorPortId && pendingConnectorPortId !== portId) {
-          createConnector(pendingConnectorPortId, portId, activeDiagram);
-          setConnectMode(false);
-        } else {
-          setPendingConnectorPortId(portId);
-        }
-      } else {
+      if (!activeDiagram || !isIbdDiagram(activeDiagram)) {
         setPendingConnectorPortId(null);
+        setConnectMode(false);
+        return;
+      }
+      if (!connectMode) {
+        prepareManualConnection(portId);
+        return;
+      }
+      if (pendingConnectorPortId && pendingConnectorPortId !== portId) {
+        createConnector(pendingConnectorPortId, portId, activeDiagram);
+        setConnectMode(false);
+      } else {
+        setPendingConnectorPortId(portId);
       }
     });
   };
@@ -2476,6 +2583,60 @@ export default function App() {
       );
     }
 
+    if (contextMenu.kind === 'port') {
+      const target = elementsById[contextMenu.elementId];
+      if (!target || target.metaclass !== 'Port') return null;
+      const openProperties = () => {
+        selectElement(target.id);
+        setContextMenu(null);
+      };
+      const openDrawer = () => {
+        openCodeDrawerForElement(target.id);
+        setContextMenu(null);
+      };
+      const renameHere = () => {
+        beginRename(target.id, 'tree');
+        setContextMenu(null);
+      };
+      const startConnector = () => {
+        if (!activeDiagram || !isIbdDiagram(activeDiagram)) {
+          showToast('Connectors are only available on IBD diagrams', 'error');
+          setContextMenu(null);
+          return;
+        }
+        prepareManualConnection(target.id);
+        setContextMenu(null);
+      };
+      return (
+        <div
+          className="context-menu"
+          ref={contextMenuRef}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="context-menu__title">{target.name}</div>
+          <div className="context-menu__group">
+            <div className="context-menu__label">Connections</div>
+            <button type="button" onClick={startConnector} className="context-menu__item">
+              Connect to another port
+            </button>
+          </div>
+          <div className="context-menu__group">
+            <div className="context-menu__label">Edit</div>
+            <button type="button" onClick={openProperties} className="context-menu__item">
+              Open in properties
+            </button>
+            <button type="button" onClick={openDrawer} className="context-menu__item">
+              Show in code drawer
+            </button>
+            <button type="button" onClick={renameHere} className="context-menu__item">
+              Rename
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (contextMenu.kind === 'canvas' && activeDiagram) {
       const createHere = () => {
         if (isBddDiagram(activeDiagram)) {
@@ -2769,6 +2930,7 @@ export default function App() {
                       onSelectDiagram={selectDiagram}
                       disableActions={!payload}
                       onContextMenu={handleTreeContextMenu}
+                      onDropOnOwner={handleTreeDrop}
                     />
                   </Panel>
                   <button
@@ -2853,6 +3015,7 @@ export default function App() {
                       onSelectNodes={setSelectedNodeIds}
                       connectMode={connectMode}
                       onPortSelect={handlePortSelect}
+                      onPortContextMenu={handlePortContextMenu}
                       onDropElement={handleDropElement}
                       onCanvasContextMenu={handleCanvasContextMenu}
                       onNodeContextMenu={handleCanvasNodeContextMenu}
