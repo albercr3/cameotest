@@ -164,6 +164,8 @@ export default function App() {
   const [pendingDrawerSwitchId, setPendingDrawerSwitchId] = useState<string | null | undefined>(undefined);
   const [externalModelChange, setExternalModelChange] = useState(false);
   const [propertiesCollapsed, setPropertiesCollapsed] = useState(false);
+  const [showContainment, setShowContainment] = useState(true);
+  const [showPropertiesPanel, setShowPropertiesPanel] = useState(true);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [renameState, setRenameState] = useState<
     | { targetId: string; source: 'tree'; draft: string }
@@ -647,6 +649,15 @@ export default function App() {
       diagrams: payload.diagrams.diagrams.length,
     };
   }, [payload]);
+
+  const layoutColumns = useMemo(() => {
+    if (showContainment && showPropertiesPanel) return '1fr 3fr 1fr';
+    if (showContainment && !showPropertiesPanel) return '1fr 4fr';
+    if (!showContainment && showPropertiesPanel) return '4fr 1fr';
+    return '1fr';
+  }, [showContainment, showPropertiesPanel]);
+
+  const canvasFocused = !showContainment && !showPropertiesPanel;
 
   const selectedRelationshipId = selection?.kind === 'relationship' ? selection.id : undefined;
   const propertiesSubtitle =
@@ -2621,200 +2632,245 @@ export default function App() {
           </div>
         ) : null}
         {payload ? (
-          <main className="layout layout--three">
-            <Panel title="Model Browser" subtitle="Containment tree with search">
-              <ModelBrowser
-                tree={tree}
-                search={search}
-                onSearch={setSearch}
-                selectedId={selectedElementId}
-                renamingId={renameState?.source === 'tree' ? renameState.targetId : undefined}
-                renameDraft={renameState?.source === 'tree' ? renameState.draft : undefined}
-                onRenameChange={handleRenameChange}
-                onRenameSubmit={handleRenameSubmit}
-                onRenameCancel={handleRenameCancel}
-                onSelect={selectElement}
-                onCreatePackage={() => createElement('Package')}
-                onCreateBlock={() => createElement('Block')}
-                onDelete={selectedElementId ? handleDelete : undefined}
-                onAddToDiagram={
-                  selectedElementId && canAddElementToDiagram
-                    ? () => addToDiagram(selectedElementId)
-                    : undefined
-                }
-                activeDiagram={activeDiagram}
-                disableActions={!payload}
-                onContextMenu={handleTreeContextMenu}
-              />
-            </Panel>
-          <Panel title={workspaceTitleNode} subtitle={payload?.manifest.description}>
-            <p className="lede">
-              {payload
-                ? `${summary.elements} elements, ${summary.relationships} relationships, ${summary.diagrams} diagrams.`
-                : 'Select a workspace to explore its contents.'}
-            </p>
-            {activeDiagram ? (
-              <div className="diagram-wrapper">
-                <div className="diagram-header">
-                  {diagramBreadcrumb ? <div className="diagram-breadcrumb">{diagramBreadcrumb}</div> : null}
-                  <DiagramTabs
-                    diagrams={payload?.diagrams.diagrams ?? []}
-                    activeId={activeDiagramId}
-                    onSelect={setActiveDiagramId}
+          <>
+            <div className="layout-controls" aria-label="Workspace layout controls">
+              <div className="layout-controls__group">
+                <span className="layout-controls__label">View</span>
+                <button
+                  type="button"
+                  className={`chip-toggle${showContainment ? ' chip-toggle--active' : ''}`}
+                  onClick={() => setShowContainment((value) => !value)}
+                >
+                  {showContainment ? 'Hide containment' : 'Show containment'}
+                </button>
+                <button
+                  type="button"
+                  className={`chip-toggle${showPropertiesPanel ? ' chip-toggle--active' : ''}`}
+                  onClick={() => setShowPropertiesPanel((value) => !value)}
+                >
+                  {showPropertiesPanel ? 'Hide properties' : 'Show properties'}
+                </button>
+                <button
+                  type="button"
+                  className={`chip-toggle chip-toggle--accent${canvasFocused ? ' chip-toggle--active' : ''}`}
+                  onClick={() => {
+                    if (canvasFocused) {
+                      setShowContainment(true);
+                      setShowPropertiesPanel(true);
+                      return;
+                    }
+                    setShowContainment(false);
+                    setShowPropertiesPanel(false);
+                  }}
+                >
+                  {canvasFocused ? 'Restore panels' : 'Focus canvas'}
+                </button>
+              </div>
+              <div className="layout-controls__hint">
+                {canvasFocused
+                  ? 'Canvas is expanded — reopen panels to navigate the model and edit properties.'
+                  : 'Toggle panels to remix the layout. Collapse everything to immerse in the canvas.'}
+              </div>
+            </div>
+            <main className="layout layout--three" style={{ gridTemplateColumns: layoutColumns }}>
+              {showContainment ? (
+                <Panel title="Containment" subtitle="Tree navigation inspired by Cameo">
+                  <ModelBrowser
+                    tree={tree}
+                    search={search}
+                    onSearch={setSearch}
+                    selectedId={selectedElementId}
+                    renamingId={renameState?.source === 'tree' ? renameState.targetId : undefined}
+                    renameDraft={renameState?.source === 'tree' ? renameState.draft : undefined}
+                    onRenameChange={handleRenameChange}
+                    onRenameSubmit={handleRenameSubmit}
+                    onRenameCancel={handleRenameCancel}
+                    onSelect={selectElement}
+                    onCreatePackage={() => createElement('Package')}
+                    onCreateBlock={() => createElement('Block')}
+                    onDelete={selectedElementId ? handleDelete : undefined}
+                    onAddToDiagram={
+                      selectedElementId && canAddElementToDiagram
+                        ? () => addToDiagram(selectedElementId)
+                        : undefined
+                    }
+                    activeDiagram={activeDiagram}
+                    disableActions={!payload}
+                    onContextMenu={handleTreeContextMenu}
                   />
-                  <span className="diagram-meta">Type: {activeDiagramKind}</span>
-                  {selectedNodeIds.length > 0 ? (
-                    <span className="diagram-meta diagram-meta--count">{selectedNodeIds.length} selected</span>
-                  ) : null}
-                  <div className="diagram-actions" ref={diagramMenuRef}>
-                    <button
-                      type="button"
-                      className="button button--ghost"
-                      onClick={toggleCodeDrawer}
-                      disabled={!payload}
-                    >
-                      {codeDrawerOpen ? 'Hide code' : 'Code'}
-                    </button>
-                    <button
-                      type="button"
-                      className="button button--ghost"
-                      onClick={() => setDiagramMenuOpen((open) => !open)}
-                    >
-                      New diagram ▾
-                    </button>
-                    {diagramMenuOpen ? (
-                      <div className="diagram-actions__menu">
-                        <button type="button" className="diagram-actions__item" onClick={handleCreateBddFromMenu}>
-                          Block Definition (BDD)
+                </Panel>
+              ) : null}
+              <Panel title={workspaceTitleNode} subtitle={payload?.manifest.description}>
+                <p className="lede">
+                  {payload
+                    ? `${summary.elements} elements, ${summary.relationships} relationships, ${summary.diagrams} diagrams.`
+                    : 'Select a workspace to explore its contents.'}
+                </p>
+                {activeDiagram ? (
+                  <div className="diagram-wrapper">
+                    <div className="diagram-header">
+                      {diagramBreadcrumb ? <div className="diagram-breadcrumb">{diagramBreadcrumb}</div> : null}
+                      <DiagramTabs
+                        diagrams={payload?.diagrams.diagrams ?? []}
+                        activeId={activeDiagramId}
+                        onSelect={setActiveDiagramId}
+                      />
+                      <span className="diagram-meta">Type: {activeDiagramKind}</span>
+                      {selectedNodeIds.length > 0 ? (
+                        <span className="diagram-meta diagram-meta--count">{selectedNodeIds.length} selected</span>
+                      ) : null}
+                      <div className="diagram-actions" ref={diagramMenuRef}>
+                        <button
+                          type="button"
+                          className="button button--ghost"
+                          onClick={toggleCodeDrawer}
+                          disabled={!payload}
+                        >
+                          {codeDrawerOpen ? 'Hide code' : 'Code'}
                         </button>
                         <button
                           type="button"
-                          className="diagram-actions__item"
-                          onClick={handleCreateIbdFromMenu}
-                          disabled={!selectedElement || selectedElement.metaclass !== 'Block'}
+                          className="button button--ghost"
+                          onClick={() => setDiagramMenuOpen((open) => !open)}
                         >
-                          Internal Block (IBD)
+                          New diagram ▾
                         </button>
+                        {diagramMenuOpen ? (
+                          <div className="diagram-actions__menu">
+                            <button type="button" className="diagram-actions__item" onClick={handleCreateBddFromMenu}>
+                              Block Definition (BDD)
+                            </button>
+                            <button
+                              type="button"
+                              className="diagram-actions__item"
+                              onClick={handleCreateIbdFromMenu}
+                              disabled={!selectedElement || selectedElement.metaclass !== 'Block'}
+                            >
+                              Internal Block (IBD)
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
+                    </div>
+                    <DiagramCanvas
+                      diagram={activeDiagram}
+                      elements={elementsById}
+                      relationships={relationshipsById}
+                      selection={selection}
+                      selectedNodeIds={selectedNodeIds}
+                      onSelectElement={selectElement}
+                      onSelectRelationship={selectRelationship}
+                      onSelectNodes={setSelectedNodeIds}
+                      connectMode={connectMode}
+                      onPortSelect={handlePortSelect}
+                      onDropElement={handleDropElement}
+                      onCanvasContextMenu={handleCanvasContextMenu}
+                      onPartContextMenu={handlePartContextMenu}
+                      onChange={(diagram, options) => updateDiagram(activeDiagram.id, diagram, options)}
+                    />
                   </div>
-                </div>
-                <DiagramCanvas
-                  diagram={activeDiagram}
-                  elements={elementsById}
-                  relationships={relationshipsById}
-                  selection={selection}
-                  selectedNodeIds={selectedNodeIds}
-                  onSelectElement={selectElement}
-                  onSelectRelationship={selectRelationship}
-                  onSelectNodes={setSelectedNodeIds}
-                  connectMode={connectMode}
-                  onPortSelect={handlePortSelect}
-                  onDropElement={handleDropElement}
-                  onCanvasContextMenu={handleCanvasContextMenu}
-                  onPartContextMenu={handlePartContextMenu}
-                  onChange={(diagram, options) => updateDiagram(activeDiagram.id, diagram, options)}
-                />
-              </div>
-            ) : (
-              <>
-                <div className="empty-state">No diagram open. Select or create a diagram to begin.</div>
-                <div className="summary-cards">
-                  <div className="card">
-                    <div className="card__label">Workspace ID</div>
-                    <div className="card__value">{payload?.manifest.id ?? '—'}</div>
-                  </div>
-                  <div className="card">
-                    <div className="card__label">IR version</div>
-                    <div className="card__value">{IR_VERSION}</div>
-                  </div>
-                  <div className="card">
-                    <div className="card__label">Updated</div>
-                    <div className="card__value">{payload?.manifest.updatedAt ?? '—'}</div>
-                  </div>
-                  <div className="card">
-                    <div className="card__label">Created</div>
-                    <div className="card__value">{payload?.manifest.createdAt ?? '—'}</div>
-                  </div>
-                </div>
-              </>
-            )}
-          </Panel>
-          <Panel
-            title="Properties"
-            subtitle={propertiesSubtitle}
-            actions={
-              <>
-                <button className="button button--ghost" type="button" onClick={toggleCodeDrawer} disabled={!selectedElement}>
-                  {codeDrawerOpen ? 'Hide code' : 'Code'}
-                </button>
-                <button
-                  className="button button--ghost"
-                  type="button"
-                  onClick={() => setPropertiesCollapsed((value) => !value)}
+                ) : (
+                  <>
+                    <div className="empty-state">No diagram open. Select or create a diagram to begin.</div>
+                    <div className="summary-cards">
+                      <div className="card">
+                        <div className="card__label">Workspace ID</div>
+                        <div className="card__value">{payload?.manifest.id ?? '—'}</div>
+                      </div>
+                      <div className="card">
+                        <div className="card__label">IR version</div>
+                        <div className="card__value">{IR_VERSION}</div>
+                      </div>
+                      <div className="card">
+                        <div className="card__label">Updated</div>
+                        <div className="card__value">{payload?.manifest.updatedAt ?? '—'}</div>
+                      </div>
+                      <div className="card">
+                        <div className="card__label">Created</div>
+                        <div className="card__value">{payload?.manifest.createdAt ?? '—'}</div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </Panel>
+              {showPropertiesPanel ? (
+                <Panel
+                  title="Properties"
+                  subtitle={propertiesSubtitle}
+                  actions={
+                    <>
+                      <button className="button button--ghost" type="button" onClick={toggleCodeDrawer} disabled={!selectedElement}>
+                        {codeDrawerOpen ? 'Hide code' : 'Code'}
+                      </button>
+                      <button
+                        className="button button--ghost"
+                        type="button"
+                        onClick={() => setPropertiesCollapsed((value) => !value)}
+                      >
+                        {propertiesCollapsed ? 'Show' : 'Hide'} properties
+                      </button>
+                    </>
+                  }
                 >
-                  {propertiesCollapsed ? 'Show' : 'Hide'} properties
-                </button>
-              </>
-            }
-          >
-            {propertiesCollapsed ? (
-              <div className="empty-state">Properties hidden. Use the toggle above to reopen.</div>
-            ) : (
-              <PropertiesPanel
-                selection={selection}
-                element={selectedElement}
-                relationship={selectedRelationship}
-                elements={elementsById}
-                relatedRelationships={relatedRelationships}
-                metaclasses={metaclasses}
-                relationshipTypes={relationshipTypes}
-                relationshipCreationTypes={relationshipCreationTypes}
-                onSelect={setSelection}
-                onElementChange={(updates) => selectedElementId && updateElement(selectedElementId, updates)}
-                onRelationshipChange={(updates) =>
-                  selectedRelationshipId && updateRelationship(selectedRelationshipId, updates)
-                }
-                onConnectorItemFlowChange={
-                  selectedRelationship?.type === 'Connector'
-                    ? (value) => updateConnectorItemFlow(selectedRelationship.id, value)
-                    : undefined
-                }
-                onCreateRelationship={
-                  selectedElement
-                    ? (type, targetId) => createRelationship(type, selectedElement.id, targetId)
-                    : undefined
-                }
-                onDeleteRelationship={handleDeleteRelationship}
-                onAddToDiagram={
-                  selectedElementId && canAddElementToDiagram
-                    ? () => addToDiagram(selectedElementId, { position: diagramCenterPosition() })
-                    : undefined
-                }
-                onAddPort={
-                  (selectedIsBlock || selectedIsPart) && selectedElement
-                    ? () => createPort(selectedElement.id)
-                    : undefined
-                }
-                onCreatePart={
-                  selectedIsBlock &&
-                  selectedElement &&
-                  activeDiagram &&
-                  isIbdDiagram(activeDiagram) &&
-                  activeDiagram.contextBlockId
-                    ? () => createPart(activeDiagram.contextBlockId!, selectedElement.id)
-                    : undefined
-                }
-                onCreateIbd={
-                  selectedIsBlock && selectedElement
-                    ? () => createIbdDiagramForBlock(selectedElement)
-                    : undefined
-                }
-              />
-            )}
-          </Panel>
-        </main>
-      ) : (
+                  {propertiesCollapsed ? (
+                    <div className="empty-state">Properties hidden. Use the toggle above to reopen.</div>
+                  ) : (
+                    <PropertiesPanel
+                      selection={selection}
+                      element={selectedElement}
+                      relationship={selectedRelationship}
+                      elements={elementsById}
+                      relatedRelationships={relatedRelationships}
+                      metaclasses={metaclasses}
+                      relationshipTypes={relationshipTypes}
+                      relationshipCreationTypes={relationshipCreationTypes}
+                      onSelect={setSelection}
+                      onElementChange={(updates) => selectedElementId && updateElement(selectedElementId, updates)}
+                      onRelationshipChange={(updates) =>
+                        selectedRelationshipId && updateRelationship(selectedRelationshipId, updates)
+                      }
+                      onConnectorItemFlowChange={
+                        selectedRelationship?.type === 'Connector'
+                          ? (value) => updateConnectorItemFlow(selectedRelationship.id, value)
+                          : undefined
+                      }
+                      onCreateRelationship={
+                        selectedElement
+                          ? (type, targetId) => createRelationship(type, selectedElement.id, targetId)
+                          : undefined
+                      }
+                      onDeleteRelationship={handleDeleteRelationship}
+                      onAddToDiagram={
+                        selectedElementId && canAddElementToDiagram
+                          ? () => addToDiagram(selectedElementId, { position: diagramCenterPosition() })
+                          : undefined
+                      }
+                      onAddPort={
+                        (selectedIsBlock || selectedIsPart) && selectedElement
+                          ? () => createPort(selectedElement.id)
+                          : undefined
+                      }
+                      onCreatePart={
+                        selectedIsBlock &&
+                        selectedElement &&
+                        activeDiagram &&
+                        isIbdDiagram(activeDiagram) &&
+                        activeDiagram.contextBlockId
+                          ? () => createPart(activeDiagram.contextBlockId!, selectedElement.id)
+                          : undefined
+                      }
+                      onCreateIbd={
+                        selectedIsBlock && selectedElement
+                          ? () => createIbdDiagramForBlock(selectedElement)
+                          : undefined
+                      }
+                    />
+                  )}
+                </Panel>
+              ) : null}
+            </main>
+          </>
+        ) : (
         <main className="layout layout--landing">
           <Panel title="Welcome" subtitle="Open or import a workspace to begin">
             <p className="lede">No workspace is currently loaded.</p>

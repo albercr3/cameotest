@@ -82,6 +82,7 @@ export function ModelBrowser({
               {isRenaming ? (
                 <div className={`tree__item${isSelected ? ' tree__item--selected' : ''}`} style={accentStyle}>
                   <span className="tree__accent" aria-hidden="true" />
+                  <span className="tree__icon" aria-hidden="true">{node.children.length ? '📁' : '📄'}</span>
                   <div className="tree__text">
                     <input
                       className="tree__rename"
@@ -116,6 +117,7 @@ export function ModelBrowser({
                   }}
                 >
                   <span className="tree__accent" aria-hidden="true" />
+                  <span className="tree__icon" aria-hidden="true">{node.children.length ? '📁' : '📄'}</span>
                   <div className="tree__text">
                     <span className="tree__title">{node.element.name}</span>
                     <span className="tree__meta">{node.element.metaclass}</span>
