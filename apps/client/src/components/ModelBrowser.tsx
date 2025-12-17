@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import type { Diagram, Element } from '@cameotest/shared';
-import { ELEMENT_DRAG_MIME } from '../dragTypes';
+import { DraggedElementPayload, ELEMENT_DRAG_MIME } from '../dragTypes';
 import { accentForMetaclass } from '../styles/accents';
 
 const glyphForMetaclass = (metaclass: Element['metaclass'] | string) => {
@@ -50,6 +50,7 @@ interface ModelBrowserProps {
   onSelectDiagram?: (id: string) => void;
   disableActions?: boolean;
   onContextMenu?: (element: Element, clientPosition: { x: number; y: number }) => void;
+  onDropOnOwner?: (payload: DraggedElementPayload, ownerId: string | null) => void;
 }
 
 export function ModelBrowser({
@@ -67,6 +68,7 @@ export function ModelBrowser({
   onSelectDiagram,
   disableActions,
   onContextMenu,
+  onDropOnOwner,
 }: ModelBrowserProps) {
   const normalizedSearch = search.trim().toLowerCase();
 
@@ -82,6 +84,24 @@ export function ModelBrowser({
     };
     return filterNodes(tree);
   }, [tree, normalizedSearch]);
+
+  const handleDrop = (event: React.DragEvent, ownerId: string | null) => {
+    if (!event.dataTransfer.types.includes(ELEMENT_DRAG_MIME)) return;
+    event.preventDefault();
+    const payloadText = event.dataTransfer.getData(ELEMENT_DRAG_MIME);
+    try {
+      const payload = JSON.parse(payloadText) as DraggedElementPayload;
+      onDropOnOwner?.(payload, ownerId);
+    } catch {
+      /* ignore malformed payloads */
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes(ELEMENT_DRAG_MIME)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  };
 
   const renderNodes = (nodes: ModelBrowserNode[]) => {
     return (
@@ -101,12 +121,21 @@ export function ModelBrowser({
             : `${node.diagram.kind} diagram`;
           const title = isElement ? node.element.name : node.diagram.name;
           const handleDragStart = (event: React.DragEvent) => {
-            if (!isElement) return;
-            event.dataTransfer.effectAllowed = 'copy';
-            event.dataTransfer.setData(
-              ELEMENT_DRAG_MIME,
-              JSON.stringify({ elementId: node.element.id, elementType: node.element.metaclass }),
-            );
+            const payload: DraggedElementPayload = isElement
+              ? {
+                  elementId: node.element.id,
+                  elementType: node.element.metaclass,
+                  nodeKind: 'element',
+                  source: 'tree',
+                }
+              : {
+                  elementId: node.diagram.id,
+                  elementType: 'Diagram',
+                  nodeKind: 'diagram',
+                  source: 'tree',
+                };
+            event.dataTransfer.effectAllowed = 'copyMove';
+            event.dataTransfer.setData(ELEMENT_DRAG_MIME, JSON.stringify(payload));
           };
           return (
             <li key={nodeId}>
@@ -146,8 +175,10 @@ export function ModelBrowser({
                   className={`tree__item${isSelected ? ' tree__item--selected' : ''}`}
                   style={accentStyle}
                   onClick={() => (isElement ? onSelect(node.element.id) : onSelectDiagram?.(node.diagram.id))}
-                  draggable={isElement}
+                  draggable
                   onDragStart={handleDragStart}
+                  onDragOver={(event) => handleDragOver(event)}
+                  onDrop={(event) => handleDrop(event, isElement ? node.element.id : node.diagram.ownerId ?? null)}
                   onContextMenu={(event) => {
                     if (!isElement) return;
                     event.preventDefault();
@@ -195,7 +226,13 @@ export function ModelBrowser({
         </div>
         <div className="model-browser__hint">Right-click anywhere in the tree to create or manage elements.</div>
       </div>
-      <div className="tree-container">{renderNodes(filtered)}</div>
+      <div
+        className="tree-container"
+        onDragOver={(event) => handleDragOver(event)}
+        onDrop={(event) => handleDrop(event, null)}
+      >
+        {renderNodes(filtered)}
+      </div>
     </div>
   );
 }

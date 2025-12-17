@@ -906,7 +906,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: calc(100vh - 280px);
+  min-height: calc(100vh - 220px);
 }
 
 .diagram-controls {
@@ -921,9 +921,10 @@ textarea {
   border-radius: var(--radius-lg);
   background: radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.06), transparent 35%),
     radial-gradient(circle at 70% 30%, rgba(20, 184, 166, 0.05), transparent 32%),
-    linear-gradient(180deg, #f8fafc, #eef2ff 50%, #f8fafc);
-  min-height: calc(100vh - 360px);
-  height: 100%;
+    linear-gradient(180deg, #f8fafc, #eef2ff 50%, #ecfeff);
+  min-height: 520px;
+  height: calc(100vh - 260px);
+  max-height: calc(100vh - 180px);
   position: relative;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), var(--shadow-soft);
@@ -1047,16 +1048,25 @@ textarea {
 .diagram-node--block rect {
   fill: #eef2ff;
   stroke: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
 }
 
 .diagram-node--package rect {
   fill: #ecfdf3;
   stroke: #16a34a;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.12);
 }
 
 .diagram-node--signal rect {
   fill: #fff1f2;
   stroke: #f43f5e;
+  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.12);
+}
+
+.diagram-node--part rect {
+  fill: #e0f2fe;
+  stroke: #0284c7;
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.12);
 }
 
 .diagram-node:hover rect {
@@ -1076,6 +1086,11 @@ textarea {
   stroke: #fff;
   stroke-width: 2.4;
   filter: drop-shadow(0 6px 14px rgba(99, 102, 241, 0.32));
+}
+
+.diagram-node--port text {
+  fill: #0f172a;
+  font-weight: 700;
 }
 
 .diagram-node--part-port rect {
