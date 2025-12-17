@@ -15,10 +15,12 @@ body {
     radial-gradient(circle at 90% 20%, rgba(20, 184, 166, 0.08), transparent 38%),
     linear-gradient(180deg, var(--color-background), #e9eef7 50%, var(--color-background));
   min-height: 100vh;
+  overflow: hidden;
 }
 
 .app {
   min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.4));
@@ -194,9 +196,10 @@ select:focus {
   gap: 16px;
   background: linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.8));
   align-items: stretch;
-  min-height: calc(100vh - 160px);
+  height: calc(100vh - 140px);
   grid-auto-rows: minmax(0, 1fr);
   transition: grid-template-columns var(--transition-medium), gap var(--transition-medium);
+  overflow: hidden;
 }
 
 .layout--three {
@@ -214,6 +217,7 @@ select:focus {
   box-shadow: var(--shadow-soft);
   display: flex;
   flex-direction: column;
+  min-height: 0;
   transition: box-shadow var(--transition-medium), border-color var(--transition-medium);
 }
 
@@ -327,6 +331,9 @@ select:focus {
   padding: 16px;
   flex: 1;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .panel__body :last-child {
@@ -723,6 +730,8 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
 }
 
 .diagram-header {
@@ -906,7 +915,8 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: calc(100vh - 220px);
+  min-height: 0;
+  flex: 1;
 }
 
 .diagram-controls {
@@ -923,8 +933,8 @@ textarea {
     radial-gradient(circle at 70% 30%, rgba(20, 184, 166, 0.05), transparent 32%),
     linear-gradient(180deg, #f8fafc, #eef2ff 50%, #ecfeff);
   min-height: 520px;
-  height: calc(100vh - 260px);
-  max-height: calc(100vh - 180px);
+  flex: 1;
+  height: 100%;
   position: relative;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), var(--shadow-soft);
