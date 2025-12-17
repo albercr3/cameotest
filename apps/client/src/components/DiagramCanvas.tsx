@@ -51,6 +51,7 @@ export function DiagramCanvas({
   onPartContextMenu,
   onChange,
 }: DiagramCanvasProps) {
+  const canvasRef = useRef<HTMLDivElement | null>(null);
   const dragStart = useRef<
     | {
         x: number;
@@ -498,20 +499,34 @@ export function DiagramCanvas({
     onChange({ ...diagram, viewSettings: { ...view, [key]: !view[key] } });
   };
 
-  const zoomBy = (factor: number) => {
-    const nextZoom = Math.min(3, Math.max(0.25, view.zoom * factor));
-    onChange({ ...diagram, viewSettings: { ...view, zoom: nextZoom } });
-  };
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const nextZoom = Math.min(3, Math.max(0.25, view.zoom * factor));
+      onChange({ ...diagram, viewSettings: { ...view, zoom: nextZoom } });
+    },
+    [diagram, onChange, view],
+  );
 
   const panBy = (dx: number, dy: number) => {
     onChange({ ...diagram, viewSettings: { ...view, panX: view.panX + dx, panY: view.panY + dy } });
   };
 
-  const handleWheel = (event: React.WheelEvent) => {
-    event.preventDefault();
-    const factor = event.deltaY > 0 ? 0.9 : 1.1;
-    zoomBy(factor);
-  };
+  const handleWheel = useCallback(
+    (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const factor = event.deltaY > 0 ? 0.9 : 1.1;
+      zoomBy(factor);
+    },
+    [zoomBy],
+  );
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, [handleWheel]);
 
   const handleDragOver = (event: React.DragEvent) => {
     if (!event.dataTransfer.types.includes(ELEMENT_DRAG_MIME)) {
@@ -753,16 +768,16 @@ export function DiagramCanvas({
           </button>
           {connectMode ? <span className="pill">Connect mode: pick two ports</span> : null}
         </div>
-      <div
-        className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}${
-          isDropActive ? ' diagram-canvas--dropping' : ''
-        }${connectMode ? ' diagram-canvas--connect' : ''}`}
-        style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
-        onWheel={handleWheel}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
+        <div
+          className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}${
+            isDropActive ? ' diagram-canvas--dropping' : ''
+          }${connectMode ? ' diagram-canvas--connect' : ''}`}
+          style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
+          ref={canvasRef}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
           <svg
             ref={svgRef}
             width="100%"
@@ -952,16 +967,16 @@ export function DiagramCanvas({
           Canvas menu ▾
         </button>
       </div>
-      <div
-        className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}${
-          isDropActive ? ' diagram-canvas--dropping' : ''
-        }`}
-        style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
-        onWheel={handleWheel}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
+        <div
+          className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}${
+            isDropActive ? ' diagram-canvas--dropping' : ''
+          }`}
+          style={{ backgroundSize: `${GRID_SIZE * view.zoom}px ${GRID_SIZE * view.zoom}px` }}
+          ref={canvasRef}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
         <svg
           ref={svgRef}
           width="100%"
