@@ -84,6 +84,7 @@ export function DiagramCanvas({
   const isIbd = (diagram.kind ?? diagram.type) === 'IBD';
 
   const view = diagram.viewSettings;
+  const canvasMenuDisabled = !onCanvasContextMenu;
   const diagramRef = useRef(diagram);
   const viewRef = useRef(view);
 
@@ -541,6 +542,17 @@ export function DiagramCanvas({
     onCanvasContextMenu?.({ clientX: event.clientX, clientY: event.clientY, position });
   };
 
+  const openCanvasMenu = () => {
+    if (!onCanvasContextMenu) return;
+    const { rect, scaleX, scaleY } = getSvgMetrics();
+    const currentView = viewRef.current;
+    const clientX = rect.left + rect.width / 2;
+    const clientY = rect.top + rect.height / 2;
+    const x = ((clientX - rect.left) * scaleX) / currentView.zoom - currentView.panX;
+    const y = ((clientY - rect.top) * scaleY) / currentView.zoom - currentView.panY;
+    onCanvasContextMenu({ clientX, clientY, position: { x, y } });
+  };
+
   useEffect(() => {
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
@@ -731,6 +743,9 @@ export function DiagramCanvas({
               +
             </button>
           </div>
+          <button type="button" className="button button--ghost" onClick={openCanvasMenu} disabled={canvasMenuDisabled}>
+            Canvas menu ▾
+          </button>
           {connectMode ? <span className="pill">Connect mode: pick two ports</span> : null}
         </div>
       <div
@@ -921,6 +936,9 @@ export function DiagramCanvas({
             +
           </button>
         </div>
+        <button type="button" className="button button--ghost" onClick={openCanvasMenu} disabled={canvasMenuDisabled}>
+          Canvas menu ▾
+        </button>
       </div>
       <div
         className={`diagram-canvas${view.gridEnabled ? ' diagram-canvas--grid' : ''}${
