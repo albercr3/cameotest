@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const metaclassSchema = z.enum(['Package', 'Block', 'Part', 'Port', 'Requirement']);
+export const metaclassSchema = z.enum(['Package', 'Block', 'Part', 'Port', 'Signal', 'Requirement']);
 export type Metaclass = z.infer<typeof metaclassSchema>;
 
 export const diagramKindSchema = z.enum(['BDD', 'IBD']);
@@ -13,6 +13,8 @@ export const elementSchema = z
     name: z.string().min(1),
     ownerId: z.string().uuid().nullable(),
     typeId: z.string().uuid().optional(),
+    signalTypeId: z.string().uuid().optional(),
+    direction: z.enum(['in', 'out', 'inout']).optional(),
     documentation: z.string().default(''),
     stereotypes: z.array(z.string()).default([]),
     tags: z.record(z.string()).default({}),

@@ -30,6 +30,7 @@ interface WorkspacePayload {
 }
 
 type Selection = { kind: 'element'; id: string } | { kind: 'relationship'; id: string };
+type FlowDirection = 'in' | 'out' | 'inout';
 
 type HistoryEntry = {
   payload: WorkspacePayload;
@@ -263,6 +264,11 @@ export default function App() {
 
   const selectElement = (id?: string) => setSelection(id ? { kind: 'element', id } : undefined);
   const selectRelationship = (id?: string) => setSelection(id ? { kind: 'relationship', id } : undefined);
+  const selectDiagram = (id?: string) => {
+    setActiveDiagramId(id);
+    setSelection(undefined);
+    setSelectedNodeIds([]);
+  };
 
   const pushHistoryEntry = useCallback((entry: HistoryEntry) => {
     setHistory((prev) => {
@@ -439,22 +445,26 @@ export default function App() {
 
   const tree = useMemo<ModelBrowserNode[]>(() => {
     if (!payload) return [];
-    const nodes = new Map<string, ModelBrowserNode>();
+    const elementNodes = new Map<string, Extract<ModelBrowserNode, { kind: 'element' }>>();
     payload.model.elements.forEach((element) => {
-      nodes.set(element.id, { element, children: [] });
+      elementNodes.set(element.id, { kind: 'element', element, children: [] });
     });
+
     const roots: ModelBrowserNode[] = [];
-    nodes.forEach((node) => {
-      if (node.element.ownerId) {
-        const parent = nodes.get(node.element.ownerId);
+    const attachNode = (node: ModelBrowserNode, ownerId: string | null | undefined) => {
+      if (ownerId) {
+        const parent = elementNodes.get(ownerId);
         if (parent) {
           parent.children.push(node);
-        } else {
-          roots.push(node);
+          return;
         }
-      } else {
-        roots.push(node);
       }
+      roots.push(node);
+    };
+
+    elementNodes.forEach((node) => attachNode(node, node.element.ownerId));
+    payload.diagrams.diagrams.forEach((diagram) => {
+      attachNode({ kind: 'diagram', diagram, children: [] }, diagram.ownerId);
     });
     return roots;
   }, [payload]);
@@ -476,6 +486,12 @@ export default function App() {
     selectElement(element.id);
     setSelectedNodeIds([]);
     setContextMenu({ kind: 'tree', x: position.x, y: position.y, elementId: element.id });
+  };
+
+  const handleCanvasNodeContextMenu = (payload: { elementId: string; clientX: number; clientY: number }) => {
+    const position = clampMenuPosition('tree', payload.clientX, payload.clientY);
+    selectElement(payload.elementId);
+    setContextMenu({ kind: 'tree', x: position.x, y: position.y, elementId: payload.elementId });
   };
 
   const elementsById = useMemo(() => {
@@ -740,6 +756,29 @@ export default function App() {
   const relationshipCreationTypes = useMemo(
     () => relationshipTypes.filter((type) => type !== 'Connector'),
     [],
+  );
+
+  const validateConnectorPorts = useCallback(
+    (sourcePortId: string, targetPortId: string) => {
+      const source = elementsById[sourcePortId];
+      const target = elementsById[targetPortId];
+      if (!source || !target) return { ok: false, message: 'Both ports must exist before connecting' } as const;
+      if (source.metaclass !== 'Port' || target.metaclass !== 'Port') {
+        return { ok: false, message: 'Connectors can only link ports' } as const;
+      }
+      const sourceSignal = source.signalTypeId as string | undefined;
+      const targetSignal = target.signalTypeId as string | undefined;
+      if (sourceSignal && targetSignal && sourceSignal !== targetSignal) {
+        return { ok: false, message: 'Ports must share the same signal type' } as const;
+      }
+      const sourceDir = source.direction as FlowDirection | undefined;
+      const targetDir = target.direction as FlowDirection | undefined;
+      if (sourceDir && targetDir && sourceDir !== 'inout' && targetDir !== 'inout' && sourceDir === targetDir) {
+        return { ok: false, message: 'Use complementary flow directions for connectors' } as const;
+      }
+      return { ok: true } as const;
+    },
+    [elementsById],
   );
 
   const updateElement = (id: string, updates: Partial<Element>) => {
@@ -1213,11 +1252,12 @@ export default function App() {
     }
   };
 
-  const createElement = (metaclass: 'Package' | 'Block', ownerOverride?: string | null) => {
+  const createElement = (metaclass: 'Package' | 'Block' | 'Signal', ownerOverride?: string | null) => {
     if (!payload) return;
     const now = new Date().toISOString();
     const ownerId = ownerOverride ?? selectContainerId(selection?.kind === 'element' ? selection.id : undefined);
-    const baseName = metaclass === 'Package' ? 'NewPackage' : 'NewBlock';
+    const baseName =
+      metaclass === 'Package' ? 'NewPackage' : metaclass === 'Signal' ? 'NewSignal' : 'NewBlock';
     const name = dedupeName(baseName, ownerId);
     const element: Element = {
       id: crypto.randomUUID(),
@@ -1248,6 +1288,7 @@ export default function App() {
       metaclass: 'Port',
       name,
       ownerId,
+      direction: 'inout',
       documentation: '',
       stereotypes: [],
       tags: {},
@@ -1777,6 +1818,12 @@ export default function App() {
 
   const createConnector = (sourcePortId: string, targetPortId: string, diagram?: Diagram) => {
     if (!payload || !diagram || !isIbdDiagram(diagram)) return;
+    const validation = validateConnectorPorts(sourcePortId, targetPortId);
+    if (!validation.ok) {
+      showToast(validation.message, 'error');
+      setPendingConnectorPortId(null);
+      return;
+    }
     const now = new Date().toISOString();
     const relationship: Relationship = {
       id: crypto.randomUUID(),
@@ -2210,6 +2257,7 @@ export default function App() {
         target.metaclass === 'Package' ? target.id : selectContainerId(target.id ?? undefined);
       const canCreatePackage = target.metaclass === 'Package';
       const canCreateBlock = target.metaclass === 'Package' || target.metaclass === 'Block';
+      const canCreateSignal = target.metaclass === 'Package' || target.metaclass === 'Block';
       const canCreatePart = target.metaclass === 'Block';
       const canCreatePort = target.metaclass === 'Block' || target.metaclass === 'Part';
       const createPackage = () => {
@@ -2221,6 +2269,13 @@ export default function App() {
       };
       const createBlock = () => {
         const id = createElement('Block', ownerForElements);
+        if (id) {
+          beginRename(id, 'tree');
+        }
+        setContextMenu(null);
+      };
+      const createSignal = () => {
+        const id = createElement('Signal', ownerForElements);
         if (id) {
           beginRename(id, 'tree');
         }
@@ -2319,6 +2374,11 @@ export default function App() {
             {canCreateBlock ? (
               <button type="button" onClick={createBlock} className="context-menu__item">
                 Block
+              </button>
+            ) : null}
+            {canCreateSignal ? (
+              <button type="button" onClick={createSignal} className="context-menu__item">
+                Signal
               </button>
             ) : null}
             <button
@@ -2699,12 +2759,14 @@ export default function App() {
                       search={search}
                       onSearch={setSearch}
                       selectedId={selectedElementId}
+                      selectedDiagramId={activeDiagramId}
                       renamingId={renameState?.source === 'tree' ? renameState.targetId : undefined}
                       renameDraft={renameState?.source === 'tree' ? renameState.draft : undefined}
                       onRenameChange={handleRenameChange}
                       onRenameSubmit={handleRenameSubmit}
                       onRenameCancel={handleRenameCancel}
                       onSelect={selectElement}
+                      onSelectDiagram={selectDiagram}
                       disableActions={!payload}
                       onContextMenu={handleTreeContextMenu}
                     />
@@ -2793,6 +2855,7 @@ export default function App() {
                       onPortSelect={handlePortSelect}
                       onDropElement={handleDropElement}
                       onCanvasContextMenu={handleCanvasContextMenu}
+                      onNodeContextMenu={handleCanvasNodeContextMenu}
                       onPartContextMenu={handlePartContextMenu}
                       onChange={(diagram, options) => updateDiagram(activeDiagram.id, diagram, options)}
                     />

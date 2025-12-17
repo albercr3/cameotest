@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Element, Metaclass, Relationship, RelationshipType } from '@cameotest/shared';
 
 type Selection = { kind: 'element' | 'relationship'; id: string };
+type FlowDirection = 'in' | 'out' | 'inout';
 
 interface PropertiesPanelProps {
   selection?: Selection;
@@ -59,6 +60,10 @@ export function PropertiesPanel({
   }, [element, elements]);
 
   const creationTypeOptions = relationshipCreationTypes ?? relationshipTypes;
+  const signalOptions = useMemo(
+    () => Object.values(elements).filter((item) => item.metaclass === 'Signal'),
+    [elements],
+  );
 
   if (!element && !relationship) {
     return <p className="muted">Select an element or relationship to inspect its properties.</p>;
@@ -171,6 +176,41 @@ export function PropertiesPanel({
           </option>
         ))}
       </select>
+
+      {element.metaclass === 'Port' ? (
+        <>
+          <label className="label" htmlFor="prop-signal">
+            Signal type
+          </label>
+          <select
+            id="prop-signal"
+            value={element.signalTypeId ?? ''}
+            onChange={(event) =>
+              onElementChange({ signalTypeId: event.target.value || undefined })
+            }
+          >
+            <option value="">Unspecified</option>
+            {signalOptions.map((signal) => (
+              <option key={signal.id} value={signal.id}>
+                {signal.name}
+              </option>
+            ))}
+          </select>
+
+          <label className="label" htmlFor="prop-direction">
+            Flow direction
+          </label>
+          <select
+            id="prop-direction"
+            value={(element.direction as FlowDirection) ?? 'inout'}
+            onChange={(event) => onElementChange({ direction: event.target.value as FlowDirection })}
+          >
+            <option value="in">In</option>
+            <option value="out">Out</option>
+            <option value="inout">Inout</option>
+          </select>
+        </>
+      ) : null}
 
       {element.metaclass === 'Part' ? (
         <>

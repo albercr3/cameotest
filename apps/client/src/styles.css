@@ -193,7 +193,9 @@ select:focus {
   grid-template-columns: 1fr 3fr 1fr;
   gap: 16px;
   background: linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.8));
-  align-items: start;
+  align-items: stretch;
+  min-height: calc(100vh - 160px);
+  grid-auto-rows: minmax(0, 1fr);
   transition: grid-template-columns var(--transition-medium), gap var(--transition-medium);
 }
 
@@ -235,10 +237,10 @@ select:focus {
   transform: translateY(-50%);
   width: 28px;
   height: 48px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
+  border-radius: 10px;
+  border: 1px solid rgba(79, 70, 229, 0.45);
+  background: linear-gradient(120deg, #eef2ff, #e0f2fe);
+  color: #312e81;
   box-shadow: var(--shadow-soft);
   font-weight: 800;
   cursor: pointer;
@@ -249,13 +251,13 @@ select:focus {
 }
 
 .panel-toggle--right {
-  right: -14px;
-  border-radius: 8px 0 0 8px;
+  right: -10px;
+  border-radius: 10px 0 0 10px;
 }
 
 .panel-toggle--left {
-  left: -14px;
-  border-radius: 0 8px 8px 0;
+  left: -10px;
+  border-radius: 0 10px 10px 0;
 }
 
 .panel-toggle--floating {
@@ -323,6 +325,8 @@ select:focus {
 
 .panel__body {
   padding: 16px;
+  flex: 1;
+  overflow: auto;
 }
 
 .panel__body :last-child {
@@ -902,6 +906,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: calc(100vh - 280px);
 }
 
 .diagram-controls {
@@ -917,10 +922,21 @@ textarea {
   background: radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.06), transparent 35%),
     radial-gradient(circle at 70% 30%, rgba(20, 184, 166, 0.05), transparent 32%),
     linear-gradient(180deg, #f8fafc, #eef2ff 50%, #f8fafc);
-  min-height: 520px;
+  min-height: calc(100vh - 360px);
+  height: 100%;
   position: relative;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), var(--shadow-soft);
+}
+
+.diagram-canvas::after {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border: 2px solid rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.18);
 }
 
 .layout-controls {
@@ -1026,6 +1042,21 @@ textarea {
   filter: drop-shadow(0 8px 18px rgba(15, 23, 42, 0.08));
   transition: transform var(--transition-medium), stroke var(--transition-medium),
     filter var(--transition-medium), box-shadow var(--transition-medium);
+}
+
+.diagram-node--block rect {
+  fill: #eef2ff;
+  stroke: #4f46e5;
+}
+
+.diagram-node--package rect {
+  fill: #ecfdf3;
+  stroke: #16a34a;
+}
+
+.diagram-node--signal rect {
+  fill: #fff1f2;
+  stroke: #f43f5e;
 }
 
 .diagram-node:hover rect {
