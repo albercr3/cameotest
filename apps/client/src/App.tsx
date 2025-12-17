@@ -667,10 +667,16 @@ export default function App() {
 
   useEffect(() => {
     if (!activeDiagram) {
-      setSelectedNodeIds([]);
+      setSelectedNodeIds((current) => (current.length === 0 ? current : []));
       return;
     }
-    setSelectedNodeIds((current) => current.filter((id) => activeDiagram.nodes.some((node) => node.id === id)));
+    setSelectedNodeIds((current) => {
+      const filtered = current.filter((id) => activeDiagram.nodes.some((node) => node.id === id));
+      if (filtered.length === current.length && filtered.every((value, index) => value === current[index])) {
+        return current;
+      }
+      return filtered;
+    });
   }, [activeDiagram]);
 
   useEffect(() => {
@@ -2952,7 +2958,7 @@ export default function App() {
                   ›
                 </button>
               )}
-              <Panel title={workspaceTitleNode} subtitle={payload?.manifest.description}>
+              <Panel title={workspaceTitleNode} subtitle={payload?.manifest.description} bodyClassName="panel__body--fill">
                 <p className="lede">
                   {payload
                     ? `${summary.elements} elements, ${summary.relationships} relationships, ${summary.diagrams} diagrams.`

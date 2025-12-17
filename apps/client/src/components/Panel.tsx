@@ -4,9 +4,11 @@ interface PanelProps extends PropsWithChildren {
   title: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
+  bodyClassName?: string;
 }
 
-export function Panel({ title, subtitle, actions, children }: PanelProps) {
+export function Panel({ title, subtitle, actions, bodyClassName, children }: PanelProps) {
+  const bodyClasses = bodyClassName ? `panel__body ${bodyClassName}` : 'panel__body';
   return (
     <section className="panel">
       <header className="panel__header">
@@ -20,7 +22,7 @@ export function Panel({ title, subtitle, actions, children }: PanelProps) {
         </div>
         {actions ? <div className="panel__actions">{actions}</div> : null}
       </header>
-      <div className="panel__body">{children}</div>
+      <div className={bodyClasses}>{children}</div>
     </section>
   );
 }
