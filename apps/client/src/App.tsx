@@ -1244,7 +1244,7 @@ export default function App() {
     setLoadingExample(true);
     try {
       setStatus('Loading example workspace...');
-      const validated = validateWorkspaceFiles(exampleWorkspace as WorkspaceFiles);
+      const validated = validateWorkspaceFiles(exampleWorkspace as unknown as WorkspaceFiles);
       const response = await postJson<{ manifest: WorkspaceManifest }>('/api/workspaces/import', {
         workspace: validated,
       });

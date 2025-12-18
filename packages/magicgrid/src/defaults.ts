@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   MAGICGRID_VERSION,
   constraintSchema,
@@ -149,7 +148,7 @@ export const defaultMagicGridWorkspace: MagicGridWorkspace = magicGridWorkspaceS
 
 export function createElement(title: string, row: number, column: number, rowSpan = 1, columnSpan = 1): GridElement {
   return gridElementSchema.parse({
-    id: randomUUID(),
+    id: crypto.randomUUID(),
     title,
     row,
     column,
