@@ -10,8 +10,11 @@ import {
   WorkspaceFiles,
   WorkspaceManifest,
   diagramsFileSchema,
+  parseSysmlPayload,
   modelFileSchema,
-  sysmlV2JsonSchema,
+  workspaceToSysmlV2Json,
+  workspaceToSysmlV2Text,
+  IR_VERSION,
   validateWorkspace,
   validateWorkspaceFiles,
   workspaceManifestSchema,
@@ -66,6 +69,12 @@ function manifestFromSysml(sysmlManifest?: Partial<WorkspaceManifest>): Workspac
     updatedAt: now,
     version: sysmlManifest?.version ?? 1,
   });
+}
+
+function schemaVersionFromQuery(query: Record<string, unknown>): string {
+  return (typeof query.schema === 'string' && query.schema) ||
+    (typeof query.version === 'string' && query.version) ||
+    IR_VERSION;
 }
 
 function starterWorkspace(manifest: WorkspaceManifest): WorkspaceFiles {
@@ -226,8 +235,20 @@ app.get('/api/workspaces/current/export', requireUser(), async (req, res) => {
     const workspace = await repository.getWorkspace(currentWorkspaceId);
     if (!workspace) throw new Error('Workspace not found');
     const format = typeof req.query.type === 'string' ? req.query.type : undefined;
+    const schemaVersion = schemaVersionFromQuery(req.query as Record<string, unknown>);
     if (format === 'sysmlv2-json') {
-      return res.json({ type: 'sysmlv2-json', ...workspace });
+      const bundle = workspaceToSysmlV2Json(workspace, {
+        schemaVersion,
+        manifestOverride: workspace.manifest,
+      });
+      return res.json(bundle);
+    }
+    if (format === 'sysmlv2-text') {
+      const bundle = workspaceToSysmlV2Text(workspace, {
+        schemaVersion,
+        manifestOverride: workspace.manifest,
+      });
+      return res.json(bundle);
     }
     if (format === 'workspace-json') {
       return res.json({ type: 'workspace-json', workspace });
@@ -274,15 +295,44 @@ app.post('/api/workspaces/current/import', requireUser(), requireWorkspacePermis
     return res.status(400).json({ error: 'No workspace selected' });
   }
   try {
+    const existing = await repository.getWorkspace(workspaceId);
+    if (!existing) {
+      return res.status(404).json({ message: 'Workspace not found' });
+    }
+    const rawManifest =
+      (req.body as { manifest?: Partial<WorkspaceManifest> }).manifest ??
+      (req.body as { sysml?: { manifest?: Partial<WorkspaceManifest> } }).sysml?.manifest;
+    const manifestOverride = {
+      ...manifestFromSysml(rawManifest),
+      id: existing.manifest.id,
+      createdAt: existing.manifest.createdAt,
+      version: existing.manifest.version,
+    } satisfies WorkspaceManifest;
+    const sysmlWorkspace = parseSysmlPayload(req.body, {
+      manifestOverride: { ...manifestOverride, updatedAt: new Date().toISOString() },
+    });
+
+    if (sysmlWorkspace) {
+      const workspace: WorkspaceFiles = {
+        manifest: { ...sysmlWorkspace.manifest, id: existing.manifest.id },
+        model: sysmlWorkspace.model,
+        diagrams: normalizeDiagrams(sysmlWorkspace.diagrams),
+      };
+      const validity = ensureWorkspaceValid(workspace);
+      if (!validity.ok) {
+        return res.status(400).json({ message: 'Validation failed', issues: validity.validation.issues });
+      }
+      const savedManifest = await repository.saveWorkspace(workspace, existing.manifest.version, {
+        ownerId: req.user?.id,
+      });
+      return res.json({ status: 'imported', manifest: savedManifest });
+    }
+
     const body = req.body as Partial<WorkspaceFiles> & { model?: ModelFile };
     if (!body.model) {
       return res.status(400).json({ message: 'model payload is required' });
     }
     const model = modelFileSchema.parse(body.model);
-    const existing = await repository.getWorkspace(workspaceId);
-    if (!existing) {
-      return res.status(404).json({ message: 'Workspace not found' });
-    }
     const manifest = { ...existing.manifest, updatedAt: new Date().toISOString() };
     const diagrams = existing.diagrams;
     const workspace: WorkspaceFiles = { manifest, model, diagrams };
@@ -301,15 +351,15 @@ app.post('/api/workspaces/current/import', requireUser(), requireWorkspacePermis
 
 app.post('/api/workspaces/import', requireUser(), requireWorkspacePermission('write'), async (req, res) => {
   try {
-    if (req.body?.type === 'sysmlv2-json') {
-      const sysml = sysmlV2JsonSchema.parse(req.body.sysml ?? req.body);
-      const manifest = manifestFromSysml(sysml.manifest);
-      const workspace: WorkspaceFiles = {
-        manifest,
-        model: sysml.model,
-        diagrams: normalizeDiagrams(sysml.diagrams),
-      };
-      const validated = validateWorkspaceFiles(workspace);
+    const rawManifest =
+      (req.body as { manifest?: Partial<WorkspaceManifest> }).manifest ??
+      (req.body as { sysml?: { manifest?: Partial<WorkspaceManifest> } }).sysml?.manifest;
+    const sysmlWorkspace = parseSysmlPayload(req.body, {
+      manifestOverride: manifestFromSysml(rawManifest),
+    });
+
+    if (sysmlWorkspace) {
+      const validated = validateWorkspaceFiles(sysmlWorkspace);
       const validity = ensureWorkspaceValid(validated);
       if (!validity.ok) {
         return res.status(400).json({ message: 'Validation failed', issues: validity.validation.issues });
