@@ -687,7 +687,9 @@ export default function App() {
   useEffect(() => {
     if (!activeDiagram) return;
     if (selection?.kind !== 'element') {
-      setSelectedNodeIds([]);
+      if (selectedNodeIds.length > 0) {
+        setSelectedNodeIds([]);
+      }
       return;
     }
     const alreadyIncludes = activeDiagram.nodes.some(
@@ -715,6 +717,11 @@ export default function App() {
       diagrams: payload.diagrams.diagrams.length,
     };
   }, [payload]);
+
+  const contextBlockName = useMemo(() => {
+    if (!activeDiagram?.contextBlockId) return undefined;
+    return elementsById[activeDiagram.contextBlockId]?.name ?? 'Context block';
+  }, [activeDiagram, elementsById]);
 
   const layoutColumns = useMemo(() => {
     if (showContainment && showPropertiesPanel) return '1fr 3fr 1fr';
@@ -2801,6 +2808,36 @@ export default function App() {
           onToggleConnectMode={canUseConnectMode ? toggleConnectMode : undefined}
           onShowShortcuts={() => setShortcutsOpen(true)}
         />
+        {payload ? (
+          <div className="workspace-ribbon" role="status" aria-live="polite">
+            <div className="workspace-ribbon__item">
+              <span className="workspace-ribbon__label">Elements</span>
+              <span className="workspace-ribbon__value">{summary.elements}</span>
+            </div>
+            <div className="workspace-ribbon__item">
+              <span className="workspace-ribbon__label">Relationships</span>
+              <span className="workspace-ribbon__value">{summary.relationships}</span>
+            </div>
+            <div className="workspace-ribbon__item">
+              <span className="workspace-ribbon__label">Diagrams</span>
+              <span className="workspace-ribbon__value">{summary.diagrams}</span>
+            </div>
+            <div className="workspace-ribbon__item workspace-ribbon__item--muted">
+              <span className="workspace-ribbon__label">Active view</span>
+              <span className="workspace-ribbon__value">{activeDiagramKind ?? '—'}</span>
+            </div>
+            {contextBlockName ? (
+              <div className="workspace-ribbon__item workspace-ribbon__item--muted">
+                <span className="workspace-ribbon__label">Context</span>
+                <span className="workspace-ribbon__value">{contextBlockName}</span>
+              </div>
+            ) : null}
+            <div className="workspace-ribbon__item workspace-ribbon__item--muted">
+              <span className="workspace-ribbon__label">IR version</span>
+              <span className="workspace-ribbon__value">{IR_VERSION}</span>
+            </div>
+          </div>
+        ) : null}
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
         {shortcutsOpen ? (
           <div
@@ -2974,6 +3011,12 @@ export default function App() {
                         onSelect={setActiveDiagramId}
                       />
                       <span className="diagram-meta">Type: {activeDiagramKind}</span>
+                      {contextBlockName ? (
+                        <span className="diagram-meta diagram-meta--context">Context: {contextBlockName}</span>
+                      ) : null}
+                      <span className={`diagram-meta${connectMode ? ' diagram-meta--live' : ''}`}>
+                        {connectMode ? 'Connect mode' : 'Explore mode'}
+                      </span>
                       {selectedNodeIds.length > 0 ? (
                         <span className="diagram-meta diagram-meta--count">{selectedNodeIds.length} selected</span>
                       ) : null}
