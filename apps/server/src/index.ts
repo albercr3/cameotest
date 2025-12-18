@@ -10,8 +10,11 @@ import {
   WorkspaceFiles,
   WorkspaceManifest,
   diagramsFileSchema,
+  parseSysmlPayload,
   modelFileSchema,
-  sysmlV2JsonSchema,
+  workspaceToSysmlV2Json,
+  workspaceToSysmlV2Text,
+  IR_VERSION,
   validateWorkspace,
   validateWorkspaceFiles,
   workspaceManifestSchema,
@@ -68,63 +71,236 @@ function manifestFromSysml(sysmlManifest?: Partial<WorkspaceManifest>): Workspac
   });
 }
 
+function schemaVersionFromQuery(query: Record<string, unknown>): string {
+  return (typeof query.schema === 'string' && query.schema) ||
+    (typeof query.version === 'string' && query.version) ||
+    IR_VERSION;
+}
+
 function starterWorkspace(manifest: WorkspaceManifest): WorkspaceFiles {
   const now = new Date().toISOString();
-  const rootBlockId = uuid();
-  const signalId = uuid();
-  const diagramId = uuid();
-  const rootNodeId = uuid();
-  const rootBlock = {
-    id: rootBlockId,
-    metaclass: 'Block' as const,
-    name: 'RootModel',
-    ownerId: null,
-    documentation: 'Base block for the workspace. Create child elements underneath.',
-    stereotypes: [],
-    tags: {},
-    createdAt: now,
-    updatedAt: now,
-  } satisfies ModelFile['elements'][number];
+  const carBlockId = uuid();
+  const engineBlockId = uuid();
+  const transmissionBlockId = uuid();
+  const wheelBlockId = uuid();
+  const batteryBlockId = uuid();
+  const brakeControllerBlockId = uuid();
+  const sensorBlockId = uuid();
 
-  const baseSignal = {
-    id: signalId,
-    metaclass: 'Signal' as const,
-    name: 'DefaultSignal',
-    ownerId: rootBlockId,
-    documentation: 'Starter signal to type ports.',
-    stereotypes: [],
-    tags: {},
-    createdAt: now,
-    updatedAt: now,
-  } satisfies ModelFile['elements'][number];
+  const driverSignalId = uuid();
+  const torqueSignalId = uuid();
+  const brakeSignalId = uuid();
 
-  const starterDiagram = {
-    id: diagramId,
+  const enginePartId = uuid();
+  const transmissionPartId = uuid();
+  const batteryPartId = uuid();
+  const brakeControllerPartId = uuid();
+  const sensorPartId = uuid();
+  const wheelFrontLeftId = uuid();
+  const wheelFrontRightId = uuid();
+  const wheelRearLeftId = uuid();
+  const wheelRearRightId = uuid();
+
+  const carDriverPortId = uuid();
+  const carTelemetryPortId = uuid();
+  const enginePowerInPortId = uuid();
+  const engineTorqueOutPortId = uuid();
+  const transmissionTorqueInPortId = uuid();
+  const transmissionAxleOutPortId = uuid();
+  const batteryPowerOutPortId = uuid();
+  const brakeCommandInPortId = uuid();
+  const brakeHydraulicOutPortId = uuid();
+  const wheelTorqueInPortId = uuid();
+  const wheelSpeedOutPortId = uuid();
+
+  const elements: ModelFile['elements'] = [
+    {
+      id: carBlockId,
+      metaclass: 'Block',
+      name: 'CarSystem',
+      ownerId: null,
+      documentation: 'Reference block representing a modern vehicle.',
+      stereotypes: [],
+      tags: {},
+      createdAt: now,
+      updatedAt: now,
+    },
+    { id: engineBlockId, metaclass: 'Block', name: 'Engine', ownerId: carBlockId, documentation: 'Combustion or electric drive unit.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: transmissionBlockId, metaclass: 'Block', name: 'Transmission', ownerId: carBlockId, documentation: 'Distributes torque to the axles.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: wheelBlockId, metaclass: 'Block', name: 'WheelAssembly', ownerId: carBlockId, documentation: 'Hub, tire, and brake assembly.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: batteryBlockId, metaclass: 'Block', name: 'BatteryPack', ownerId: carBlockId, documentation: 'Energy storage feeding the power bus.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: brakeControllerBlockId, metaclass: 'Block', name: 'BrakeController', ownerId: carBlockId, documentation: 'Supervises braking and stability.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: sensorBlockId, metaclass: 'Block', name: 'SensorHub', ownerId: carBlockId, documentation: 'Aggregates speed and chassis telemetry.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: driverSignalId, metaclass: 'Signal', name: 'DriverCommand', ownerId: carBlockId, documentation: 'Commanded acceleration and brake request.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: torqueSignalId, metaclass: 'Signal', name: 'DriveTorque', ownerId: carBlockId, documentation: 'Torque delivered to the axle.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: brakeSignalId, metaclass: 'Signal', name: 'BrakeHydraulics', ownerId: carBlockId, documentation: 'Hydraulic pressure for wheel brakes.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: enginePartId, metaclass: 'Part', name: 'engine', ownerId: carBlockId, typeId: engineBlockId, documentation: 'Installed engine assembly.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: transmissionPartId, metaclass: 'Part', name: 'gearbox', ownerId: carBlockId, typeId: transmissionBlockId, documentation: 'Transmission connected to the engine.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: batteryPartId, metaclass: 'Part', name: 'battery', ownerId: carBlockId, typeId: batteryBlockId, documentation: 'High-voltage pack.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: brakeControllerPartId, metaclass: 'Part', name: 'brakeController', ownerId: carBlockId, typeId: brakeControllerBlockId, documentation: 'Controls braking force.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: sensorPartId, metaclass: 'Part', name: 'sensors', ownerId: carBlockId, typeId: sensorBlockId, documentation: 'Wheel speed and chassis sensors.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: wheelFrontLeftId, metaclass: 'Part', name: 'frontLeftWheel', ownerId: carBlockId, typeId: wheelBlockId, documentation: 'Front left wheel assembly.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: wheelFrontRightId, metaclass: 'Part', name: 'frontRightWheel', ownerId: carBlockId, typeId: wheelBlockId, documentation: 'Front right wheel assembly.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: wheelRearLeftId, metaclass: 'Part', name: 'rearLeftWheel', ownerId: carBlockId, typeId: wheelBlockId, documentation: 'Rear left wheel assembly.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: wheelRearRightId, metaclass: 'Part', name: 'rearRightWheel', ownerId: carBlockId, typeId: wheelBlockId, documentation: 'Rear right wheel assembly.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: carDriverPortId, metaclass: 'Port', name: 'driverInput', ownerId: carBlockId, direction: 'in', signalTypeId: driverSignalId, documentation: 'Acceleration and brake request.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: carTelemetryPortId, metaclass: 'Port', name: 'telemetry', ownerId: carBlockId, direction: 'out', signalTypeId: torqueSignalId, documentation: 'Aggregated wheel torque feedback.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: enginePowerInPortId, metaclass: 'Port', name: 'powerIn', ownerId: enginePartId, direction: 'in', signalTypeId: driverSignalId, documentation: 'Power bus feed.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: engineTorqueOutPortId, metaclass: 'Port', name: 'torqueOut', ownerId: enginePartId, direction: 'out', signalTypeId: torqueSignalId, documentation: 'Torque delivered to transmission.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: transmissionTorqueInPortId, metaclass: 'Port', name: 'torqueIn', ownerId: transmissionPartId, direction: 'in', signalTypeId: torqueSignalId, documentation: 'Input from the engine.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: transmissionAxleOutPortId, metaclass: 'Port', name: 'axleOut', ownerId: transmissionPartId, direction: 'out', signalTypeId: torqueSignalId, documentation: 'Output torque to wheels.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: batteryPowerOutPortId, metaclass: 'Port', name: 'dcOut', ownerId: batteryPartId, direction: 'out', signalTypeId: driverSignalId, documentation: 'Battery power delivery.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: brakeCommandInPortId, metaclass: 'Port', name: 'brakeIn', ownerId: brakeControllerPartId, direction: 'in', signalTypeId: driverSignalId, documentation: 'Requested brake level.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: brakeHydraulicOutPortId, metaclass: 'Port', name: 'brakeHydraulics', ownerId: brakeControllerPartId, direction: 'out', signalTypeId: brakeSignalId, documentation: 'Hydraulic pressure to wheels.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: wheelTorqueInPortId, metaclass: 'Port', name: 'torqueIn', ownerId: wheelRearLeftId, direction: 'in', signalTypeId: torqueSignalId, documentation: 'Torque entering the wheel.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+    { id: wheelSpeedOutPortId, metaclass: 'Port', name: 'wheelSpeed', ownerId: sensorPartId, direction: 'out', signalTypeId: torqueSignalId, documentation: 'Measured wheel speed.', stereotypes: [], tags: {}, createdAt: now, updatedAt: now },
+  ];
+
+  const associationTo = (targetId: string) => ({
+    id: uuid(),
+    type: 'Association' as const,
+    sourceId: carBlockId,
+    targetId,
+    properties: { kind: 'composition' },
+  });
+
+  const powerConnectorId = uuid();
+  const torqueConnectorId = uuid();
+  const brakeConnectorId = uuid();
+  const telemetryConnectorId = uuid();
+  const driverCommandConnectorId = uuid();
+  const axleConnectorId = uuid();
+
+  const relationships: ModelFile['relationships'] = [
+    associationTo(engineBlockId),
+    associationTo(transmissionBlockId),
+    associationTo(batteryBlockId),
+    associationTo(brakeControllerBlockId),
+    associationTo(sensorBlockId),
+    associationTo(wheelBlockId),
+    { id: powerConnectorId, type: 'Connector', sourcePortId: batteryPowerOutPortId, targetPortId: enginePowerInPortId, itemFlowLabel: 'power' },
+    { id: torqueConnectorId, type: 'Connector', sourcePortId: engineTorqueOutPortId, targetPortId: transmissionTorqueInPortId, itemFlowLabel: 'torque' },
+    { id: brakeConnectorId, type: 'Connector', sourcePortId: brakeHydraulicOutPortId, targetPortId: wheelTorqueInPortId, itemFlowLabel: 'brake pressure' },
+    { id: telemetryConnectorId, type: 'Connector', sourcePortId: wheelSpeedOutPortId, targetPortId: carTelemetryPortId, itemFlowLabel: 'telemetry' },
+    { id: driverCommandConnectorId, type: 'Connector', sourcePortId: carDriverPortId, targetPortId: brakeCommandInPortId, itemFlowLabel: 'driver command' },
+    { id: axleConnectorId, type: 'Connector', sourcePortId: transmissionAxleOutPortId, targetPortId: wheelTorqueInPortId, itemFlowLabel: 'axle torque' },
+  ];
+
+  const bddDiagramId = uuid();
+  const carNodeId = uuid();
+  const engineNodeId = uuid();
+  const transmissionNodeId = uuid();
+  const batteryNodeId = uuid();
+  const brakeNodeId = uuid();
+  const sensorNodeId = uuid();
+  const wheelNodeId = uuid();
+
+  const bddDiagram: DiagramsFile['diagrams'][number] = {
+    id: bddDiagramId,
     name: `${manifest.name} BDD`,
-    kind: 'BDD' as const,
-    type: 'BDD' as const,
-    ownerId: rootBlockId,
+    kind: 'BDD',
+    type: 'BDD',
+    ownerId: carBlockId,
     nodes: [
-      {
-        id: rootNodeId,
-        elementId: rootBlockId,
-        kind: 'Element' as const,
-        x: 320,
-        y: 180,
-        w: 240,
-        h: 140,
-        compartments: { collapsed: false, showPorts: true, showParts: true },
-        style: { highlight: false },
-      },
+      { id: carNodeId, elementId: carBlockId, kind: 'Element', x: 80, y: 120, w: 220, h: 140, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: engineNodeId, elementId: engineBlockId, kind: 'Element', x: 360, y: 80, w: 200, h: 120, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: transmissionNodeId, elementId: transmissionBlockId, kind: 'Element', x: 620, y: 120, w: 200, h: 120, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: batteryNodeId, elementId: batteryBlockId, kind: 'Element', x: 360, y: 240, w: 180, h: 110, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: brakeNodeId, elementId: brakeControllerBlockId, kind: 'Element', x: 620, y: 260, w: 200, h: 110, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: sensorNodeId, elementId: sensorBlockId, kind: 'Element', x: 880, y: 200, w: 180, h: 110, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: wheelNodeId, elementId: wheelBlockId, kind: 'Element', x: 880, y: 60, w: 180, h: 110, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
     ],
-    edges: [],
-    viewSettings: { gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 },
+    edges: relationships
+      .filter((rel) => rel.type === 'Association')
+      .map((rel) => ({
+        id: uuid(),
+        relationshipId: rel.id,
+        sourceNodeId: carNodeId,
+        targetNodeId:
+          rel.targetId === engineBlockId
+            ? engineNodeId
+            : rel.targetId === transmissionBlockId
+              ? transmissionNodeId
+              : rel.targetId === batteryBlockId
+                ? batteryNodeId
+                : rel.targetId === brakeControllerBlockId
+                  ? brakeNodeId
+                  : rel.targetId === sensorBlockId
+                    ? sensorNodeId
+                    : wheelNodeId,
+        routingPoints: [],
+        label: 'composes',
+      })),
+    viewSettings: { gridEnabled: true, snapEnabled: false, zoom: 1, panX: 0, panY: 0 },
+  } satisfies DiagramsFile['diagrams'][number];
+
+  const ibdDiagramId = uuid();
+  const enginePartNodeId = uuid();
+  const transmissionPartNodeId = uuid();
+  const batteryPartNodeId = uuid();
+  const brakePartNodeId = uuid();
+  const sensorPartNodeId = uuid();
+  const wheelFrontLeftNodeId = uuid();
+  const wheelFrontRightNodeId = uuid();
+  const wheelRearLeftNodeId = uuid();
+  const wheelRearRightNodeId = uuid();
+
+  const carDriverPortNodeId = uuid();
+  const carTelemetryPortNodeId = uuid();
+  const enginePowerInPortNodeId = uuid();
+  const engineTorqueOutPortNodeId = uuid();
+  const transmissionTorqueInPortNodeId = uuid();
+  const transmissionAxleOutPortNodeId = uuid();
+  const batteryPowerOutPortNodeId = uuid();
+  const brakeCommandInPortNodeId = uuid();
+  const brakeHydraulicOutPortNodeId = uuid();
+  const wheelTorqueInPortNodeId = uuid();
+  const wheelSpeedOutPortNodeId = uuid();
+
+  const ibdDiagram: DiagramsFile['diagrams'][number] = {
+    id: ibdDiagramId,
+    name: `${manifest.name} IBD`,
+    kind: 'IBD',
+    type: 'IBD',
+    contextBlockId: carBlockId,
+    ownerId: carBlockId,
+    nodes: [
+      { id: enginePartNodeId, elementId: enginePartId, kind: 'Part', x: 260, y: 200, w: 180, h: 120, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: transmissionPartNodeId, elementId: transmissionPartId, kind: 'Part', x: 500, y: 200, w: 180, h: 120, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: batteryPartNodeId, elementId: batteryPartId, kind: 'Part', x: 180, y: 360, w: 160, h: 110, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: brakePartNodeId, elementId: brakeControllerPartId, kind: 'Part', x: 520, y: 360, w: 170, h: 110, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: sensorPartNodeId, elementId: sensorPartId, kind: 'Part', x: 760, y: 360, w: 160, h: 110, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: wheelFrontLeftNodeId, elementId: wheelFrontLeftId, kind: 'Part', x: 360, y: 80, w: 120, h: 90, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: wheelFrontRightNodeId, elementId: wheelFrontRightId, kind: 'Part', x: 520, y: 80, w: 120, h: 90, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: wheelRearLeftNodeId, elementId: wheelRearLeftId, kind: 'Part', x: 360, y: 520, w: 120, h: 90, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: wheelRearRightNodeId, elementId: wheelRearRightId, kind: 'Part', x: 520, y: 520, w: 120, h: 90, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: carDriverPortNodeId, elementId: carDriverPortId, kind: 'Port', x: 240, y: 140, w: 28, h: 28, placement: { side: 'N', offset: 0.35 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: carTelemetryPortNodeId, elementId: carTelemetryPortId, kind: 'Port', x: 760, y: 140, w: 28, h: 28, placement: { side: 'N', offset: 0.7 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: enginePowerInPortNodeId, elementId: enginePowerInPortId, kind: 'Port', x: 260, y: 240, w: 24, h: 24, placement: { side: 'W', offset: 0.55 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: engineTorqueOutPortNodeId, elementId: engineTorqueOutPortId, kind: 'Port', x: 440, y: 260, w: 24, h: 24, placement: { side: 'E', offset: 0.55 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: transmissionTorqueInPortNodeId, elementId: transmissionTorqueInPortId, kind: 'Port', x: 500, y: 260, w: 24, h: 24, placement: { side: 'W', offset: 0.45 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: transmissionAxleOutPortNodeId, elementId: transmissionAxleOutPortId, kind: 'Port', x: 680, y: 254, w: 24, h: 24, placement: { side: 'E', offset: 0.45 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: batteryPowerOutPortNodeId, elementId: batteryPowerOutPortId, kind: 'Port', x: 340, y: 415, w: 24, h: 24, placement: { side: 'E', offset: 0.5 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: brakeCommandInPortNodeId, elementId: brakeCommandInPortId, kind: 'Port', x: 520, y: 404, w: 24, h: 24, placement: { side: 'W', offset: 0.4 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: brakeHydraulicOutPortNodeId, elementId: brakeHydraulicOutPortId, kind: 'Port', x: 690, y: 426, w: 24, h: 24, placement: { side: 'E', offset: 0.6 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: wheelTorqueInPortNodeId, elementId: wheelTorqueInPortId, kind: 'Port', x: 360, y: 565, w: 24, h: 24, placement: { side: 'W', offset: 0.5 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+      { id: wheelSpeedOutPortNodeId, elementId: wheelSpeedOutPortId, kind: 'Port', x: 860, y: 415, w: 24, h: 24, placement: { side: 'E', offset: 0.5 }, compartments: { collapsed: false, showPorts: true, showParts: true }, style: { highlight: false } },
+    ],
+    edges: [
+      { id: uuid(), relationshipId: powerConnectorId, sourceNodeId: batteryPowerOutPortNodeId, targetNodeId: enginePowerInPortNodeId, routingPoints: [], label: 'power' },
+      { id: uuid(), relationshipId: torqueConnectorId, sourceNodeId: engineTorqueOutPortNodeId, targetNodeId: transmissionTorqueInPortNodeId, routingPoints: [], label: 'torque' },
+      { id: uuid(), relationshipId: brakeConnectorId, sourceNodeId: brakeHydraulicOutPortNodeId, targetNodeId: wheelTorqueInPortNodeId, routingPoints: [], label: 'brake pressure' },
+      { id: uuid(), relationshipId: telemetryConnectorId, sourceNodeId: wheelSpeedOutPortNodeId, targetNodeId: carTelemetryPortNodeId, routingPoints: [], label: 'telemetry' },
+      { id: uuid(), relationshipId: driverCommandConnectorId, sourceNodeId: carDriverPortNodeId, targetNodeId: brakeCommandInPortNodeId, routingPoints: [], label: 'driver command' },
+      { id: uuid(), relationshipId: axleConnectorId, sourceNodeId: transmissionAxleOutPortNodeId, targetNodeId: wheelTorqueInPortNodeId, routingPoints: [], label: 'axle' },
+    ],
+    viewSettings: { gridEnabled: true, snapEnabled: false, zoom: 0.9, panX: -20, panY: -20 },
   } satisfies DiagramsFile['diagrams'][number];
 
   return {
     manifest: { ...manifest, version: manifest.version ?? 1 },
-    model: { elements: [rootBlock, baseSignal], relationships: [] },
-    diagrams: { diagrams: [starterDiagram] },
+    model: { elements, relationships },
+    diagrams: { diagrams: [bddDiagram, ibdDiagram] },
   } satisfies WorkspaceFiles;
 }
 
@@ -226,8 +402,20 @@ app.get('/api/workspaces/current/export', requireUser(), async (req, res) => {
     const workspace = await repository.getWorkspace(currentWorkspaceId);
     if (!workspace) throw new Error('Workspace not found');
     const format = typeof req.query.type === 'string' ? req.query.type : undefined;
+    const schemaVersion = schemaVersionFromQuery(req.query as Record<string, unknown>);
     if (format === 'sysmlv2-json') {
-      return res.json({ type: 'sysmlv2-json', ...workspace });
+      const bundle = workspaceToSysmlV2Json(workspace, {
+        schemaVersion,
+        manifestOverride: workspace.manifest,
+      });
+      return res.json(bundle);
+    }
+    if (format === 'sysmlv2-text') {
+      const bundle = workspaceToSysmlV2Text(workspace, {
+        schemaVersion,
+        manifestOverride: workspace.manifest,
+      });
+      return res.json(bundle);
     }
     if (format === 'workspace-json') {
       return res.json({ type: 'workspace-json', workspace });
@@ -274,15 +462,44 @@ app.post('/api/workspaces/current/import', requireUser(), requireWorkspacePermis
     return res.status(400).json({ error: 'No workspace selected' });
   }
   try {
+    const existing = await repository.getWorkspace(workspaceId);
+    if (!existing) {
+      return res.status(404).json({ message: 'Workspace not found' });
+    }
+    const rawManifest =
+      (req.body as { manifest?: Partial<WorkspaceManifest> }).manifest ??
+      (req.body as { sysml?: { manifest?: Partial<WorkspaceManifest> } }).sysml?.manifest;
+    const manifestOverride = {
+      ...manifestFromSysml(rawManifest),
+      id: existing.manifest.id,
+      createdAt: existing.manifest.createdAt,
+      version: existing.manifest.version,
+    } satisfies WorkspaceManifest;
+    const sysmlWorkspace = parseSysmlPayload(req.body, {
+      manifestOverride: { ...manifestOverride, updatedAt: new Date().toISOString() },
+    });
+
+    if (sysmlWorkspace) {
+      const workspace: WorkspaceFiles = {
+        manifest: { ...sysmlWorkspace.manifest, id: existing.manifest.id },
+        model: sysmlWorkspace.model,
+        diagrams: normalizeDiagrams(sysmlWorkspace.diagrams),
+      };
+      const validity = ensureWorkspaceValid(workspace);
+      if (!validity.ok) {
+        return res.status(400).json({ message: 'Validation failed', issues: validity.validation.issues });
+      }
+      const savedManifest = await repository.saveWorkspace(workspace, existing.manifest.version, {
+        ownerId: req.user?.id,
+      });
+      return res.json({ status: 'imported', manifest: savedManifest });
+    }
+
     const body = req.body as Partial<WorkspaceFiles> & { model?: ModelFile };
     if (!body.model) {
       return res.status(400).json({ message: 'model payload is required' });
     }
     const model = modelFileSchema.parse(body.model);
-    const existing = await repository.getWorkspace(workspaceId);
-    if (!existing) {
-      return res.status(404).json({ message: 'Workspace not found' });
-    }
     const manifest = { ...existing.manifest, updatedAt: new Date().toISOString() };
     const diagrams = existing.diagrams;
     const workspace: WorkspaceFiles = { manifest, model, diagrams };
@@ -301,15 +518,15 @@ app.post('/api/workspaces/current/import', requireUser(), requireWorkspacePermis
 
 app.post('/api/workspaces/import', requireUser(), requireWorkspacePermission('write'), async (req, res) => {
   try {
-    if (req.body?.type === 'sysmlv2-json') {
-      const sysml = sysmlV2JsonSchema.parse(req.body.sysml ?? req.body);
-      const manifest = manifestFromSysml(sysml.manifest);
-      const workspace: WorkspaceFiles = {
-        manifest,
-        model: sysml.model,
-        diagrams: normalizeDiagrams(sysml.diagrams),
-      };
-      const validated = validateWorkspaceFiles(workspace);
+    const rawManifest =
+      (req.body as { manifest?: Partial<WorkspaceManifest> }).manifest ??
+      (req.body as { sysml?: { manifest?: Partial<WorkspaceManifest> } }).sysml?.manifest;
+    const sysmlWorkspace = parseSysmlPayload(req.body, {
+      manifestOverride: manifestFromSysml(rawManifest),
+    });
+
+    if (sysmlWorkspace) {
+      const validated = validateWorkspaceFiles(sysmlWorkspace);
       const validity = ensureWorkspaceValid(validated);
       if (!validity.ok) {
         return res.status(400).json({ message: 'Validation failed', issues: validity.validation.issues });

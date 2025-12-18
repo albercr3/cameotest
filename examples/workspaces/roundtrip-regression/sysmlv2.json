@@ -1,0 +1,336 @@
+{
+  "type": "sysmlv2-json",
+  "version": "0.1.0",
+  "manifest": {
+    "id": "roundtrip-regression",
+    "name": "SysML Roundtrip Regression",
+    "description": "Covers diagrams, associations, connectors, and item flows for regression tests.",
+    "createdAt": "2024-07-15T10:00:00.000Z",
+    "updatedAt": "2024-07-15T10:00:00.000Z",
+    "version": 1
+  },
+  "model": {
+    "elements": [
+      {
+        "id": "11111111-1111-4111-8111-111111111001",
+        "metaclass": "Package",
+        "name": "PowerDelivery",
+        "ownerId": null,
+        "documentation": "Package aggregating the regression signals and blocks.",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-07-15T10:00:00.000Z",
+        "updatedAt": "2024-07-15T10:00:00.000Z"
+      },
+      {
+        "id": "11111111-1111-4111-8111-111111111002",
+        "metaclass": "Block",
+        "name": "Controller",
+        "ownerId": "11111111-1111-4111-8111-111111111001",
+        "documentation": "Coordinates power delivery.",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-07-15T10:00:00.000Z",
+        "updatedAt": "2024-07-15T10:00:00.000Z"
+      },
+      {
+        "id": "11111111-1111-4111-8111-111111111003",
+        "metaclass": "Block",
+        "name": "PowerModule",
+        "ownerId": "11111111-1111-4111-8111-111111111001",
+        "documentation": "Provides conditioned power.",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-07-15T10:00:00.000Z",
+        "updatedAt": "2024-07-15T10:00:00.000Z"
+      },
+      {
+        "id": "11111111-1111-4111-8111-111111111004",
+        "metaclass": "Block",
+        "name": "Harness",
+        "ownerId": "11111111-1111-4111-8111-111111111001",
+        "documentation": "Mechanical harness containing connected parts.",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-07-15T10:00:00.000Z",
+        "updatedAt": "2024-07-15T10:00:00.000Z"
+      },
+      {
+        "id": "11111111-1111-4111-8111-111111111005",
+        "metaclass": "Signal",
+        "name": "PowerSignal",
+        "ownerId": "11111111-1111-4111-8111-111111111001",
+        "documentation": "Electric power current.",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-07-15T10:00:00.000Z",
+        "updatedAt": "2024-07-15T10:00:00.000Z"
+      },
+      {
+        "id": "11111111-1111-4111-8111-111111111006",
+        "metaclass": "Port",
+        "name": "input",
+        "ownerId": "11111111-1111-4111-8111-111111111002",
+        "signalTypeId": "11111111-1111-4111-8111-111111111005",
+        "direction": "in",
+        "documentation": "Incoming power line.",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-07-15T10:00:00.000Z",
+        "updatedAt": "2024-07-15T10:00:00.000Z"
+      },
+      {
+        "id": "11111111-1111-4111-8111-111111111007",
+        "metaclass": "Port",
+        "name": "output",
+        "ownerId": "11111111-1111-4111-8111-111111111003",
+        "signalTypeId": "11111111-1111-4111-8111-111111111005",
+        "direction": "out",
+        "documentation": "Power module feed.",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-07-15T10:00:00.000Z",
+        "updatedAt": "2024-07-15T10:00:00.000Z"
+      },
+      {
+        "id": "11111111-1111-4111-8111-111111111008",
+        "metaclass": "Part",
+        "name": "controllerInstance",
+        "ownerId": "11111111-1111-4111-8111-111111111004",
+        "typeId": "11111111-1111-4111-8111-111111111002",
+        "documentation": "Harness assembly controller.",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-07-15T10:00:00.000Z",
+        "updatedAt": "2024-07-15T10:00:00.000Z"
+      },
+      {
+        "id": "11111111-1111-4111-8111-111111111009",
+        "metaclass": "Part",
+        "name": "powerModuleInstance",
+        "ownerId": "11111111-1111-4111-8111-111111111004",
+        "typeId": "11111111-1111-4111-8111-111111111003",
+        "documentation": "Harness assembly power module.",
+        "stereotypes": [],
+        "tags": {},
+        "createdAt": "2024-07-15T10:00:00.000Z",
+        "updatedAt": "2024-07-15T10:00:00.000Z"
+      }
+    ],
+    "relationships": [
+      {
+        "id": "22222222-2222-4222-8222-222222222010",
+        "type": "Association",
+        "sourceId": "11111111-1111-4111-8111-111111111002",
+        "targetId": "11111111-1111-4111-8111-111111111003",
+        "properties": {
+          "name": "feeds"
+        }
+      },
+      {
+        "id": "22222222-2222-4222-8222-222222222011",
+        "type": "Connector",
+        "sourcePortId": "11111111-1111-4111-8111-111111111006",
+        "targetPortId": "11111111-1111-4111-8111-111111111007",
+        "itemFlowLabel": "powerFlow"
+      }
+    ]
+  },
+  "diagrams": {
+    "diagrams": [
+      {
+        "id": "33333333-3333-4333-8333-333333333020",
+        "name": "Power Delivery BDD",
+        "type": "BDD",
+        "ownerId": null,
+        "nodes": [
+          {
+            "id": "33333333-3333-4333-8333-333333333021",
+            "elementId": "11111111-1111-4111-8111-111111111002",
+            "x": 120,
+            "y": 120,
+            "w": 200,
+            "h": 140,
+            "compartments": {
+              "collapsed": false,
+              "showPorts": true,
+              "showParts": true
+            },
+            "style": {
+              "highlight": false
+            }
+          },
+          {
+            "id": "33333333-3333-4333-8333-333333333022",
+            "elementId": "11111111-1111-4111-8111-111111111003",
+            "x": 420,
+            "y": 180,
+            "w": 200,
+            "h": 140,
+            "compartments": {
+              "collapsed": false,
+              "showPorts": true,
+              "showParts": true
+            },
+            "style": {
+              "highlight": false
+            }
+          },
+          {
+            "id": "33333333-3333-4333-8333-333333333023",
+            "elementId": "11111111-1111-4111-8111-111111111004",
+            "x": 260,
+            "y": 40,
+            "w": 200,
+            "h": 120,
+            "compartments": {
+              "collapsed": false,
+              "showPorts": true,
+              "showParts": true
+            },
+            "style": {
+              "highlight": false
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "33333333-3333-4333-8333-333333333024",
+            "relationshipId": "22222222-2222-4222-8222-222222222010",
+            "sourceNodeId": "33333333-3333-4333-8333-333333333021",
+            "targetNodeId": "33333333-3333-4333-8333-333333333022",
+            "routingPoints": [
+              {
+                "x": 320,
+                "y": 180
+              },
+              {
+                "x": 360,
+                "y": 200
+              }
+            ],
+            "label": "feeds"
+          }
+        ],
+        "viewSettings": {
+          "gridEnabled": true,
+          "snapEnabled": true,
+          "zoom": 1,
+          "panX": 0,
+          "panY": 0
+        }
+      },
+      {
+        "id": "33333333-3333-4333-8333-333333333030",
+        "name": "Harness IBD",
+        "type": "IBD",
+        "ownerId": "11111111-1111-4111-8111-111111111004",
+        "contextBlockId": "11111111-1111-4111-8111-111111111004",
+        "nodes": [
+          {
+            "id": "33333333-3333-4333-8333-333333333031",
+            "elementId": "11111111-1111-4111-8111-111111111008",
+            "kind": "Part",
+            "x": 140,
+            "y": 320,
+            "w": 220,
+            "h": 140,
+            "compartments": {
+              "collapsed": false,
+              "showPorts": true,
+              "showParts": true
+            },
+            "style": {
+              "highlight": false
+            }
+          },
+          {
+            "id": "33333333-3333-4333-8333-333333333032",
+            "elementId": "11111111-1111-4111-8111-111111111009",
+            "kind": "Part",
+            "x": 440,
+            "y": 320,
+            "w": 220,
+            "h": 140,
+            "compartments": {
+              "collapsed": false,
+              "showPorts": true,
+              "showParts": true
+            },
+            "style": {
+              "highlight": false
+            }
+          },
+          {
+            "id": "33333333-3333-4333-8333-333333333033",
+            "elementId": "11111111-1111-4111-8111-111111111006",
+            "kind": "Port",
+            "x": 350,
+            "y": 370,
+            "w": 28,
+            "h": 28,
+            "placement": {
+              "side": "E",
+              "offset": 0.5
+            },
+            "compartments": {
+              "collapsed": false,
+              "showPorts": true,
+              "showParts": true
+            },
+            "style": {
+              "highlight": false
+            }
+          },
+          {
+            "id": "33333333-3333-4333-8333-333333333034",
+            "elementId": "11111111-1111-4111-8111-111111111007",
+            "kind": "Port",
+            "x": 430,
+            "y": 380,
+            "w": 28,
+            "h": 28,
+            "placement": {
+              "side": "W",
+              "offset": 0.5
+            },
+            "compartments": {
+              "collapsed": false,
+              "showPorts": true,
+              "showParts": true
+            },
+            "style": {
+              "highlight": false
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "33333333-3333-4333-8333-333333333035",
+            "relationshipId": "22222222-2222-4222-8222-222222222011",
+            "sourceNodeId": "33333333-3333-4333-8333-333333333033",
+            "targetNodeId": "33333333-3333-4333-8333-333333333034",
+            "routingPoints": [
+              {
+                "x": 380,
+                "y": 384
+              },
+              {
+                "x": 420,
+                "y": 384
+              }
+            ],
+            "label": "powerFlow"
+          }
+        ],
+        "viewSettings": {
+          "gridEnabled": true,
+          "snapEnabled": true,
+          "zoom": 1,
+          "panX": 0,
+          "panY": 0
+        }
+      }
+    ]
+  }
+}
