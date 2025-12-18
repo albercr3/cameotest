@@ -1,0 +1,162 @@
+import { randomUUID } from 'node:crypto';
+import {
+  MAGICGRID_VERSION,
+  constraintSchema,
+  gridElementSchema,
+  layoutMetadataSchema,
+  magicGridManifestSchema,
+  magicGridWorkspaceSchema,
+  type GridElement,
+  type LayoutMetadata,
+  type MagicGridConstraint,
+  type MagicGridManifest,
+  type MagicGridWorkspace,
+} from './ir.js';
+
+const FIXED_TIMESTAMP = '2024-01-01T00:00:00.000Z';
+
+export const defaultLayoutMetadata: LayoutMetadata = layoutMetadataSchema.parse({
+  rows: 12,
+  columns: 12,
+  rowGap: 12,
+  columnGap: 12,
+  padding: { top: 24, right: 24, bottom: 24, left: 24 },
+  background: { color: '#f7f9fb', pattern: 'grid' },
+  viewport: { zoom: 1, panX: 0, panY: 0, gridVisible: true, snapToGrid: true },
+});
+
+export const defaultGridElements: GridElement[] = [
+  gridElementSchema.parse({
+    id: '11111111-1111-4111-8111-111111111111',
+    title: 'Header',
+    row: 0,
+    column: 0,
+    rowSpan: 1,
+    columnSpan: 12,
+    layer: 'content',
+    tags: { region: 'top' },
+    notes: 'Spans the full width of the layout.',
+    createdAt: FIXED_TIMESTAMP,
+    updatedAt: FIXED_TIMESTAMP,
+  }),
+  gridElementSchema.parse({
+    id: '22222222-2222-4222-8222-222222222222',
+    title: 'Sidebar',
+    row: 1,
+    column: 0,
+    rowSpan: 10,
+    columnSpan: 3,
+    layer: 'content',
+    tags: { region: 'left' },
+    notes: 'Navigation and filters.',
+    createdAt: FIXED_TIMESTAMP,
+    updatedAt: FIXED_TIMESTAMP,
+  }),
+  gridElementSchema.parse({
+    id: '33333333-3333-4333-8333-333333333333',
+    title: 'Content',
+    row: 1,
+    column: 3,
+    rowSpan: 8,
+    columnSpan: 9,
+    layer: 'content',
+    tags: { region: 'body' },
+    notes: 'Primary working canvas.',
+    createdAt: FIXED_TIMESTAMP,
+    updatedAt: FIXED_TIMESTAMP,
+  }),
+  gridElementSchema.parse({
+    id: '44444444-4444-4444-8444-444444444444',
+    title: 'Inspector',
+    row: 9,
+    column: 9,
+    rowSpan: 2,
+    columnSpan: 3,
+    layer: 'overlay',
+    tags: { region: 'support' },
+    notes: 'Contextual properties.',
+    createdAt: FIXED_TIMESTAMP,
+    updatedAt: FIXED_TIMESTAMP,
+  }),
+  gridElementSchema.parse({
+    id: '55555555-5555-4555-8555-555555555555',
+    title: 'Footer',
+    row: 11,
+    column: 0,
+    rowSpan: 1,
+    columnSpan: 12,
+    layer: 'background',
+    visible: true,
+    tags: { region: 'bottom' },
+    notes: 'Status and links.',
+    createdAt: FIXED_TIMESTAMP,
+    updatedAt: FIXED_TIMESTAMP,
+  }),
+];
+
+export const defaultConstraints: MagicGridConstraint[] = [
+  constraintSchema.parse({
+    id: '66666666-6666-4666-8666-666666666666',
+    kind: 'alignment',
+    axis: 'column',
+    track: 0,
+    appliesTo: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'],
+    label: 'Left rail',
+  }),
+  constraintSchema.parse({
+    id: '77777777-7777-4777-8777-777777777777',
+    kind: 'alignment',
+    axis: 'column',
+    track: 12,
+    appliesTo: ['11111111-1111-4111-8111-111111111111', '33333333-3333-4333-8333-333333333333'],
+    label: 'Right rail',
+    strength: 'required',
+  }),
+  constraintSchema.parse({
+    id: '88888888-8888-4888-8888-888888888888',
+    kind: 'spacing',
+    axis: 'row',
+    gap: 12,
+    appliesTo: ['22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'],
+    label: 'Content row spacing',
+  }),
+  constraintSchema.parse({
+    id: '99999999-9999-4999-8999-999999999999',
+    kind: 'lock',
+    anchor: 'padding',
+    appliesTo: ['44444444-4444-4444-8444-444444444444'],
+    offset: { right: 12, bottom: 12, top: 0, left: 0 },
+    label: 'Inspector dock',
+  }),
+];
+
+export const defaultManifest: MagicGridManifest = magicGridManifestSchema.parse({
+  id: 'magicgrid-default',
+  name: 'MagicGrid Workspace',
+  description: 'Seed defaults for the MagicGrid IR.',
+  createdAt: FIXED_TIMESTAMP,
+  updatedAt: FIXED_TIMESTAMP,
+  schemaVersion: MAGICGRID_VERSION,
+  tags: { domain: 'layout' },
+});
+
+export const defaultMagicGridWorkspace: MagicGridWorkspace = magicGridWorkspaceSchema.parse({
+  manifest: defaultManifest,
+  layout: defaultLayoutMetadata,
+  elements: defaultGridElements,
+  constraints: defaultConstraints,
+});
+
+export function createElement(title: string, row: number, column: number, rowSpan = 1, columnSpan = 1): GridElement {
+  return gridElementSchema.parse({
+    id: randomUUID(),
+    title,
+    row,
+    column,
+    rowSpan,
+    columnSpan,
+    layer: 'content',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+}
