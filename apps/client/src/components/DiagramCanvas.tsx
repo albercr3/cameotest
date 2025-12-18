@@ -32,6 +32,7 @@ interface DiagramCanvasProps {
 const GRID_SIZE = 20;
 const VIEWBOX_WIDTH = 1200;
 const VIEWBOX_HEIGHT = 800;
+const CONNECTOR_STUB = 24;
 const IBD_FRAME = { x: 240, y: 140, w: 640, h: 420 } as const;
 
 export function DiagramCanvas({
@@ -58,6 +59,8 @@ export function DiagramCanvas({
     | {
         x: number;
         y: number;
+        diagramX: number;
+        diagramY: number;
         nodes: { id: string; x: number; y: number }[];
       }
     | null
@@ -268,11 +271,10 @@ export function DiagramCanvas({
     return { x, y };
   };
 
-  const pointerDeltaToDiagram = (event: PointerEvent, start: { x: number; y: number }) => {
-    const { scaleX, scaleY } = getSvgMetrics();
-    const currentView = viewRef.current;
-    const dx = ((event.clientX - start.x) * scaleX) / currentView.zoom;
-    const dy = ((event.clientY - start.y) * scaleY) / currentView.zoom;
+  const pointerDeltaToDiagram = (event: PointerEvent, start: { diagramX: number; diagramY: number }) => {
+    const { x, y } = toDiagramPoint(event);
+    const dx = x - start.diagramX;
+    const dy = y - start.diagramY;
     return { dx, dy };
   };
 
@@ -383,9 +385,12 @@ export function DiagramCanvas({
     pointerCapture.current = { id: event.pointerId, target };
     nodeDragKey.current = crypto.randomUUID();
     nodeDragMoved.current = false;
+    const startPoint = toDiagramPoint(event);
     dragStart.current = {
       x: event.clientX,
       y: event.clientY,
+      diagramX: startPoint.x,
+      diagramY: startPoint.y,
       nodes: (nextSelection.length > 0 ? nextSelection : [nodeId]).map((id) => {
         const currentNode = nodesById.get(id) ?? node;
         return { id, x: currentNode.x, y: currentNode.y };
@@ -649,6 +654,49 @@ export function DiagramCanvas({
     return [sourcePoint, ...routing, targetPoint].map((pt) => `${pt.x},${pt.y}`).join(' ');
   };
 
+  const zoomToFit = () => {
+    const currentDiagram = diagramRef.current ?? diagram;
+    if (currentDiagram.nodes.length === 0) return;
+
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    currentDiagram.nodes.forEach((node) => {
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + node.w);
+      maxY = Math.max(maxY, node.y + node.h);
+    });
+
+    if (isIbd) {
+      minX = Math.min(minX, IBD_FRAME.x);
+      minY = Math.min(minY, IBD_FRAME.y);
+      maxX = Math.max(maxX, IBD_FRAME.x + IBD_FRAME.w);
+      maxY = Math.max(maxY, IBD_FRAME.y + IBD_FRAME.h);
+    }
+
+    const padding = 60;
+    const width = Math.max(1, maxX - minX);
+    const height = Math.max(1, maxY - minY);
+    const paddedWidth = width + padding * 2;
+    const paddedHeight = height + padding * 2;
+    const zoomX = VIEWBOX_WIDTH / paddedWidth;
+    const zoomY = VIEWBOX_HEIGHT / paddedHeight;
+    const zoom = Math.min(zoomX, zoomY, 4);
+    const viewWidth = VIEWBOX_WIDTH / zoom;
+    const viewHeight = VIEWBOX_HEIGHT / zoom;
+    const targetCenterX = minX + width / 2;
+    const targetCenterY = minY + height / 2;
+    const panX = viewWidth / 2 - targetCenterX;
+    const panY = viewHeight / 2 - targetCenterY;
+
+    const nextView = { ...viewRef.current, zoom, panX, panY };
+    const current = diagramRef.current ?? diagram;
+    onChange({ ...current, viewSettings: nextView });
+  };
+
   if (isIbd) {
     const frame = IBD_FRAME;
     const contextBlock = diagram.contextBlockId ? elements[diagram.contextBlockId] : undefined;
@@ -698,12 +746,15 @@ export function DiagramCanvas({
       }
       return { side: closest.side, offset: Math.min(1, Math.max(0, offset)) };
     };
-    const portPositions = new Map<string, { x: number; y: number; ownerKind: 'block' | 'part' }>();
-    diagram.nodes.forEach((node) => {
-      const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
-      if (nodeKind !== 'Port') return;
-      const element = elements[node.elementId];
-      const placement = node.placement ?? { side: 'N', offset: 0.5 };
+  const portPositions = new Map<
+    string,
+    { x: number; y: number; ownerKind: 'block' | 'part'; side: 'N' | 'E' | 'S' | 'W' }
+  >();
+  diagram.nodes.forEach((node) => {
+    const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
+    if (nodeKind !== 'Port') return;
+    const element = elements[node.elementId];
+    const placement = node.placement ?? { side: 'N', offset: 0.5 };
       const clampedOffset = Math.min(1, Math.max(0, placement.offset));
       const ownerInfo = ownerRectForPort(element);
       if (!ownerInfo) return;
@@ -729,7 +780,7 @@ export function DiagramCanvas({
           y = rect.y + rect.h * clampedOffset;
           break;
       }
-      portPositions.set(node.id, { x, y, ownerKind });
+      portPositions.set(node.id, { x, y, ownerKind, side: placement.side });
     });
 
     const midpointOfPolyline = (points: { x: number; y: number }[]) => {
@@ -760,12 +811,54 @@ export function DiagramCanvas({
       return points[points.length - 1];
     };
 
+    const orthogonalConnectorPoints = (
+      source: { x: number; y: number; side: 'N' | 'E' | 'S' | 'W' },
+      target: { x: number; y: number; side: 'N' | 'E' | 'S' | 'W' },
+    ) => {
+      const start = { x: source.x, y: source.y };
+      const end = { x: target.x, y: target.y };
+      const stubbedPoint = (point: typeof start, side: typeof source.side) => {
+        switch (side) {
+          case 'N':
+            return { x: point.x, y: point.y - CONNECTOR_STUB };
+          case 'S':
+            return { x: point.x, y: point.y + CONNECTOR_STUB };
+          case 'E':
+            return { x: point.x + CONNECTOR_STUB, y: point.y };
+          case 'W':
+          default:
+            return { x: point.x - CONNECTOR_STUB, y: point.y };
+        }
+      };
+
+      const sourceStub = stubbedPoint(start, source.side);
+      const targetStub = stubbedPoint(end, target.side);
+
+      if (sourceStub.x === targetStub.x || sourceStub.y === targetStub.y) {
+        return [start, sourceStub, targetStub, end];
+      }
+
+      const optionA = [start, sourceStub, { x: sourceStub.x, y: targetStub.y }, targetStub, end];
+      const optionB = [start, sourceStub, { x: targetStub.x, y: sourceStub.y }, targetStub, end];
+      const lengthFor = (points: { x: number; y: number }[]) =>
+        points.reduce((total, point, index) => {
+          if (index === 0) return 0;
+          const prev = points[index - 1];
+          return total + Math.abs(point.x - prev.x) + Math.abs(point.y - prev.y);
+        }, 0);
+
+      return lengthFor(optionA) <= lengthFor(optionB) ? optionA : optionB;
+    };
+
     const connectorGeometry = (edge: Diagram['edges'][number]) => {
       const source = portPositions.get(edge.sourceNodeId);
       const target = portPositions.get(edge.targetNodeId);
       if (!source || !target) return null;
       const routedPoints = edge.routingPoints?.map(({ x, y }) => ({ x, y })) ?? [];
-      const points = [{ x: source.x, y: source.y }, ...routedPoints, { x: target.x, y: target.y }];
+      const points =
+        routedPoints.length > 0
+          ? [{ x: source.x, y: source.y }, ...routedPoints, { x: target.x, y: target.y }]
+          : orthogonalConnectorPoints(source, target);
       const pointString = points.map((point) => `${point.x},${point.y}`).join(' ');
       const midpoint = midpointOfPolyline(points);
       return { pointString, midpoint } as const;
@@ -815,6 +908,9 @@ export function DiagramCanvas({
             <span className="zoom-value">{Math.round(view.zoom * 100)}%</span>
             <button type="button" className="button" onClick={() => zoomBy(1.1)}>
               +
+            </button>
+            <button type="button" className="button button--ghost" onClick={zoomToFit}>
+              Fit
             </button>
           </div>
           <button type="button" className="button button--ghost" onClick={openCanvasMenu} disabled={canvasMenuDisabled}>
@@ -1016,6 +1112,9 @@ export function DiagramCanvas({
           <span className="zoom-value">{Math.round(view.zoom * 100)}%</span>
           <button type="button" className="button" onClick={() => zoomBy(1.1)}>
             +
+          </button>
+          <button type="button" className="button button--ghost" onClick={zoomToFit}>
+            Fit
           </button>
         </div>
         <button type="button" className="button button--ghost" onClick={openCanvasMenu} disabled={canvasMenuDisabled}>

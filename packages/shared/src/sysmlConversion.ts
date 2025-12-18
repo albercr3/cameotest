@@ -337,9 +337,16 @@ export function sysmlV2TextToWorkspace(
 
 export function detectSysmlFormat(payload: unknown): SysmlFormat | null {
   if (typeof payload !== 'object' || payload === null) return null;
+
   const marker = (payload as { type?: string }).type;
-  if (marker === 'sysmlv2-json') return 'sysmlv2-json';
-  if (marker === 'sysmlv2-text') return 'sysmlv2-text';
+  if (marker === 'sysmlv2-json' || marker === 'sysmlv2-text') return marker;
+
+  const nested = (payload as { sysml?: unknown }).sysml;
+  if (typeof nested === 'object' && nested !== null) {
+    const nestedMarker = (nested as { type?: string }).type;
+    if (nestedMarker === 'sysmlv2-json' || nestedMarker === 'sysmlv2-text') return nestedMarker;
+  }
+
   return null;
 }
 
