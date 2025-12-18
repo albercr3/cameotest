@@ -26,6 +26,14 @@
   ```
 - Individual dev servers can also be run per package if needed (e.g., `pnpm --filter @cameotest/server dev`).
 
+## Workspace repository & migration
+- Workspace data is stored via the server's repository layer under `data/workspaces` by default (override with `WORKSPACE_STORAGE_DIR`).
+- Existing `examples/workspaces` can be loaded into the new storage layout with:
+  ```bash
+  pnpm --filter @cameotest/server migrate:workspaces
+  ```
+  This adapter keeps legacy sample workspaces available when moving to a database or object store-backed repository.
+
 ## Default ports
 - Workspace server: `3001` (`PORT` env override supported).
 - Client (Vite): `5173`.
