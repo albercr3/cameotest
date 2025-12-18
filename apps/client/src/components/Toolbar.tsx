@@ -72,7 +72,10 @@ export function Toolbar({
   return (
     <header className="toolbar">
       <div className="toolbar__title">
-        <span className="pill">Workspace Shell</span>
+        <div className="toolbar__identity">
+          <span className="toolbar__badge">CAMEO Next</span>
+          <span className="toolbar__identity-sub">Workspace Shell</span>
+        </div>
         <div>
           <h1>SysML v2 BDD</h1>
           <p className="toolbar__status">{status}</p>
@@ -104,7 +107,11 @@ export function Toolbar({
           />
           <span>Autosave</span>
         </label>
-        <span className="toolbar__status toolbar__status--inline" title={autosaveStatusTitle}>
+        <span
+          className="toolbar__status toolbar__status--inline"
+          title={autosaveStatusTitle}
+          data-state={autosaveError ? 'error' : saving ? 'saving' : 'ready'}
+        >
           {autosaveStatus}
         </span>
         {autosaveError ? (

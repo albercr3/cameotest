@@ -102,6 +102,28 @@ export function ModelBrowser({
     return filterNodes(tree);
   }, [tree, normalizedSearch]);
 
+  const visibleCount = useMemo(() => {
+    const countNodes = (nodes: ModelBrowserNode[]): number =>
+      nodes.reduce((acc, node) => acc + 1 + countNodes(node.children), 0);
+    return countNodes(filtered);
+  }, [filtered]);
+
+  const highlight = (text: string) => {
+    if (!normalizedSearch) return text;
+    const index = text.toLowerCase().indexOf(normalizedSearch);
+    if (index === -1) return text;
+    const before = text.slice(0, index);
+    const match = text.slice(index, index + normalizedSearch.length);
+    const after = text.slice(index + normalizedSearch.length);
+    return (
+      <>
+        {before}
+        <mark className="tree__highlight">{match}</mark>
+        {after}
+      </>
+    );
+  };
+
   const handleDrop = (event: React.DragEvent, ownerId: string | null) => {
     if (!event.dataTransfer.types.includes(ELEMENT_DRAG_MIME)) return;
     event.preventDefault();
@@ -138,6 +160,8 @@ export function ModelBrowser({
               : `<${node.element.metaclass}>`
             : `${node.diagram.kind} diagram`;
           const title = isElement ? node.element.name : node.diagram.name;
+          const highlightedTitle = highlight(title);
+          const highlightedMeta = highlight(metaLabel);
           const handleDragStart = (event: React.DragEvent) => {
             const payload: DraggedElementPayload = isElement
               ? {
@@ -240,11 +264,11 @@ export function ModelBrowser({
                   <span className="tree__glyph" aria-hidden="true">{glyph}</span>
                   <div className="tree__text">
                     <div className="tree__line">
-                      <span className="tree__title">{title}</span>
+                      <span className="tree__title">{highlightedTitle}</span>
                       <span className="tree__separator" aria-hidden="true">
                         ::
                       </span>
-                      <span className="tree__meta">{metaLabel}</span>
+                      <span className="tree__meta">{highlightedMeta}</span>
                     </div>
                   </div>
                 </button>
@@ -273,11 +297,25 @@ export function ModelBrowser({
             placeholder="Type to filter elements"
             disabled={disableActions}
           />
+          {search ? (
+            <button
+              type="button"
+              className="chip-toggle chip-toggle--ghost"
+              onClick={() => onSearch('')}
+              aria-label="Clear search"
+            >
+              Clear
+            </button>
+          ) : null}
         </div>
-        <div className="model-browser__hint">Right-click anywhere in the tree to create or manage elements.</div>
+        <div className="model-browser__hint" aria-live="polite">
+          {visibleCount} match{visibleCount === 1 ? '' : 'es'} · Right-click anywhere in the tree to create or manage
+          elements.
+        </div>
       </div>
       <div
         className="tree-container"
+        data-search-active={normalizedSearch.length > 0}
         onDragOver={(event) => handleDragOver(event)}
         onDrop={(event) => handleDrop(event, null)}
       >
