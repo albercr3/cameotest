@@ -17,6 +17,16 @@ export {
   sysmlV2JsonSchema,
 } from './ir.js';
 
+export {
+  detectSysmlFormat,
+  parseSysmlPayload,
+  sysmlV2TextSchema,
+  sysmlV2TextToWorkspace,
+  sysmlV2JsonToWorkspace,
+  workspaceToSysmlV2Json,
+  workspaceToSysmlV2Text,
+} from './sysmlConversion.js';
+
 export { validateWorkspace } from './validation.js';
 export type { ValidationIssue, ValidationResult } from './validation.js';
 
@@ -34,3 +44,5 @@ export type {
   WorkspaceManifest,
   SysmlV2Json,
 } from './ir.js';
+
+export type { SysmlV2Text, SysmlFormat } from './sysmlConversion.js';
