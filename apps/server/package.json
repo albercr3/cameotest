@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "pnpm --filter @cameotest/shared build",
+    "predev": "pnpm --filter @cameotest/shared build && pnpm --filter @cameotest/magicgrid build",
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node ./dist/index.js",
