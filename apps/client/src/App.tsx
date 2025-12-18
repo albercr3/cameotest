@@ -1204,6 +1204,7 @@ export default function App() {
         description: 'Empty workspace',
         createdAt: now,
         updatedAt: now,
+        version: 1,
       };
       await postJson<WorkspaceManifest>('/api/workspaces', manifest);
       await refreshWorkspaces();
@@ -2402,15 +2403,25 @@ export default function App() {
       };
       setPayload(next);
       try {
-        await postJson('/api/workspaces/current/save', next);
+        const response = await postJson<{ status: string; manifest: WorkspaceManifest }>(
+          '/api/workspaces/current/save',
+          next,
+        );
+        const manifest = response?.manifest ?? next.manifest;
         setStatus(options?.auto ? 'Autosaved workspace' : 'Saved workspace');
         setDirty(false);
-        setLastSavedAt(next.manifest.updatedAt ?? null);
+        setLastSavedAt(manifest.updatedAt ?? null);
         setAutosaveError(null);
+        setPayload((current) => (current ? { ...current, manifest } : current));
         setWorkspaces((list) =>
           list.map((workspace) =>
-            workspace.id === next.manifest.id
-              ? { ...workspace, name: next.manifest.name, updatedAt: next.manifest.updatedAt ?? workspace.updatedAt }
+            workspace.id === manifest.id
+              ? {
+                  ...workspace,
+                  name: manifest.name,
+                  updatedAt: manifest.updatedAt ?? workspace.updatedAt,
+                  version: manifest.version ?? workspace.version,
+                }
               : workspace,
           ),
         );

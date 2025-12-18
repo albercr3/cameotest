@@ -158,6 +158,7 @@ export const workspaceManifestSchema = z
     description: z.string().optional(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
+    version: z.number().int().nonnegative().default(1),
   })
   .passthrough();
 export type WorkspaceManifest = z.infer<typeof workspaceManifestSchema>;
