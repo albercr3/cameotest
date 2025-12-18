@@ -17,6 +17,9 @@ export {
   sysmlV2JsonSchema,
 } from './ir.js';
 
+export { validateWorkspace } from './validation.js';
+export type { ValidationIssue, ValidationResult } from './validation.js';
+
 export type {
   Diagram,
   DiagramKind,
