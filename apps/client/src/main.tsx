@@ -1,8 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import WorkspaceShell from './WorkspaceShell';
 import './styles/theme.css';
 import './styles.css';
+import './styles/magicgrid.css';
 
 const root = document.getElementById('root');
 
@@ -12,6 +13,6 @@ if (!root) {
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    <App />
-  </React.StrictMode>
+    <WorkspaceShell />
+  </React.StrictMode>,
 );
