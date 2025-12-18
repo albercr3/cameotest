@@ -1,9 +1,22 @@
 import { z } from 'zod';
 
-export const metaclassSchema = z.enum(['Package', 'Block', 'Part', 'Port', 'Signal', 'Requirement']);
+export const metaclassSchema = z.enum([
+  'Package',
+  'Block',
+  'Part',
+  'Port',
+  'Signal',
+  'Requirement',
+  'Action',
+  'Activity',
+  'State',
+  'RequirementRelation',
+  'Constraint',
+  'ValueProperty',
+]);
 export type Metaclass = z.infer<typeof metaclassSchema>;
 
-export const diagramKindSchema = z.enum(['BDD', 'IBD']);
+export const diagramKindSchema = z.enum(['BDD', 'IBD', 'StateMachine', 'Activity', 'Parametric']);
 export type DiagramKind = z.infer<typeof diagramKindSchema>;
 
 export const elementSchema = z
