@@ -11,6 +11,7 @@
     "migrate:workspaces": "tsx src/migrate.ts"
   },
   "dependencies": {
+    "@cameotest/magicgrid": "workspace:^",
     "@cameotest/shared": "workspace:*",
     "cors": "^2.8.5",
     "express": "^4.19.2",

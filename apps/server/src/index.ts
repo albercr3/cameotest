@@ -5,6 +5,12 @@ import { fileURLToPath } from 'url';
 import { v4 as uuid } from 'uuid';
 
 import {
+  defaultMagicGridWorkspace,
+  magicGridManifestSchema,
+  magicGridWorkspaceSchema,
+  type MagicGridWorkspace,
+} from '@cameotest/magicgrid';
+import {
   DiagramsFile,
   ModelFile,
   WorkspaceFiles,
@@ -21,6 +27,11 @@ import {
 } from '@cameotest/shared';
 
 import { attachUser, requireUser, requireWorkspacePermission } from './auth.js';
+import {
+  FileMagicGridRepository,
+  type MagicGridManifestWithVersion,
+  type MagicGridWorkspaceWithVersion,
+} from './magicgridRepository.js';
 import { FileWorkspaceRepository, VersionConflictError } from './workspaceRepository.js';
 
 const app = express();
@@ -31,15 +42,24 @@ const __dirname = path.dirname(__filename);
 const baseWorkspacesDir =
   process.env.WORKSPACE_STORAGE_DIR ?? path.resolve(__dirname, '../../../data/workspaces');
 const legacyWorkspacesDir = path.resolve(__dirname, '../../../examples/workspaces');
+const magicGridWorkspacesDir =
+  process.env.MAGICGRID_STORAGE_DIR ?? path.resolve(__dirname, '../../../data/magicgrid');
+const legacyMagicGridDir = path.resolve(__dirname, '../../../examples/workspaces');
 
 const repository = new FileWorkspaceRepository({ baseDir: baseWorkspacesDir, legacyDir: legacyWorkspacesDir });
 await repository.bootstrapLegacyWorkspaces();
+const magicGridRepository = new FileMagicGridRepository({
+  baseDir: magicGridWorkspacesDir,
+  legacyDir: legacyMagicGridDir,
+});
+await magicGridRepository.bootstrapLegacyWorkspaces();
 
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 app.use(attachUser());
 
 let currentWorkspaceId: string | null = null;
+let currentMagicGridId: string | null = null;
 
 function normalizeDiagrams(diagrams: DiagramsFile | undefined): DiagramsFile {
   if (!diagrams) return { diagrams: [] };
@@ -302,6 +322,30 @@ function starterWorkspace(manifest: WorkspaceManifest): WorkspaceFiles {
     model: { elements, relationships },
     diagrams: { diagrams: [bddDiagram, ibdDiagram] },
   } satisfies WorkspaceFiles;
+}
+
+function cloneMagicGridDefaults(): MagicGridWorkspace {
+  return magicGridWorkspaceSchema.parse(JSON.parse(JSON.stringify(defaultMagicGridWorkspace)));
+}
+
+function starterMagicGridWorkspace(manifest: MagicGridManifestWithVersion): MagicGridWorkspaceWithVersion {
+  const template = cloneMagicGridDefaults();
+  return {
+    manifest,
+    layout: template.layout,
+    elements: template.elements,
+    constraints: template.constraints,
+  } satisfies MagicGridWorkspaceWithVersion;
+}
+
+function validateMagicGridWorkspaceRequest(candidate: MagicGridWorkspace) {
+  const parsed = magicGridWorkspaceSchema.safeParse(candidate);
+  if (!parsed.success) {
+    return { ok: false as const, issues: parsed.error.issues } as const;
+  }
+  const manifestVersion = (candidate.manifest as MagicGridManifestWithVersion | undefined)?.version ?? 1;
+  const manifest = { ...parsed.data.manifest, version: manifestVersion } satisfies MagicGridManifestWithVersion;
+  return { ok: true as const, workspace: { ...parsed.data, manifest } satisfies MagicGridWorkspaceWithVersion } as const;
 }
 
 app.get('/api/health', (_req, res) => {
@@ -592,6 +636,132 @@ app.post(
 app.post('/api/workspaces/current/new-id', requireUser(), (_req, res) => {
   res.json({ id: uuid() });
 });
+
+app.get('/api/magicgrid/workspaces', requireUser(), async (_req, res) => {
+  const workspaces = await magicGridRepository.listWorkspaces();
+  res.json(workspaces);
+});
+
+app.post('/api/magicgrid/workspaces', requireUser(), requireWorkspacePermission('write'), async (req, res) => {
+  const { id, name, description } = req.body as Partial<MagicGridManifestWithVersion>;
+  if (!id || !name) {
+    return res.status(400).json({ message: 'id and name are required' });
+  }
+  const now = new Date().toISOString();
+  try {
+    const manifest = {
+      ...magicGridManifestSchema.parse({
+        id,
+        name,
+        description,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      version: 1,
+    } satisfies MagicGridManifestWithVersion;
+    const created = await magicGridRepository.createWorkspace(starterMagicGridWorkspace(manifest), {
+      ownerId: req.user?.id,
+    });
+    currentMagicGridId = created.id;
+    res.status(201).json(created);
+  } catch (error) {
+    res.status(400).json({ message: 'Unable to create magicgrid workspace', details: String(error) });
+  }
+});
+
+app.delete(
+  '/api/magicgrid/workspaces/:id',
+  requireUser(),
+  requireWorkspacePermission('delete'),
+  async (req, res) => {
+    const { id } = req.params;
+    const removed = await magicGridRepository.deleteWorkspace(id);
+    if (!removed) {
+      return res.status(404).json({ message: `MagicGrid workspace ${id} not found` });
+    }
+    if (currentMagicGridId === id) {
+      currentMagicGridId = null;
+    }
+    res.status(204).end();
+  },
+);
+
+app.post('/api/magicgrid/workspaces/:id/open', requireUser(), async (req, res) => {
+  const { id } = req.params;
+  try {
+    const manifest = await magicGridRepository.getManifest(id);
+    if (!manifest) throw new Error('not found');
+    currentMagicGridId = manifest.id;
+    res.json({ current: manifest });
+  } catch (error) {
+    res.status(404).json({ message: `MagicGrid workspace ${id} not found`, details: String(error) });
+  }
+});
+
+app.get('/api/magicgrid/workspaces/current', requireUser(), async (_req, res) => {
+  const workspaceId = currentMagicGridId;
+  if (!workspaceId) {
+    return res.status(400).json({ error: 'No MagicGrid workspace selected' });
+  }
+  try {
+    const manifest = await magicGridRepository.getManifest(workspaceId);
+    if (!manifest) throw new Error('Missing manifest');
+    res.json({ current: manifest });
+  } catch (error) {
+    res.status(404).json({ message: 'Current MagicGrid workspace unavailable', details: String(error) });
+  }
+});
+
+app.get('/api/magicgrid/workspaces/current/load', requireUser(), async (_req, res) => {
+  if (!currentMagicGridId) {
+    return res.status(400).json({ message: 'No MagicGrid workspace open' });
+  }
+  try {
+    const workspace = await magicGridRepository.getWorkspace(currentMagicGridId);
+    if (!workspace) throw new Error('Workspace not found');
+    res.json(workspace);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to load MagicGrid workspace', details: String(error) });
+  }
+});
+
+app.post(
+  '/api/magicgrid/workspaces/current/save',
+  requireUser(),
+  requireWorkspacePermission('write'),
+  async (req, res) => {
+    if (!currentMagicGridId) {
+      return res.status(400).json({ message: 'No MagicGrid workspace open' });
+    }
+    try {
+      const payload = (req.body as { workspace?: MagicGridWorkspace }).workspace ?? (req.body as MagicGridWorkspace);
+      const validation = validateMagicGridWorkspaceRequest(payload);
+      if (!validation.ok) {
+        return res.status(400).json({ message: 'Validation failed', issues: validation.issues });
+      }
+      const expectedVersion =
+        (payload?.manifest as MagicGridManifestWithVersion | undefined)?.version ?? validation.workspace.manifest.version;
+      const workspace: MagicGridWorkspaceWithVersion = {
+        ...validation.workspace,
+        manifest: { ...validation.workspace.manifest, id: currentMagicGridId },
+      };
+      const manifest = await magicGridRepository.saveWorkspace(workspace, expectedVersion, {
+        ownerId: req.user?.id,
+      });
+      currentMagicGridId = manifest.id;
+      res.json({ status: 'saved', manifest });
+    } catch (error) {
+      if (error instanceof VersionConflictError) {
+        return res.status(409).json({
+          message: 'MagicGrid workspace has been updated elsewhere',
+          expected: error.expected,
+          actual: error.actual,
+        });
+      }
+      res.status(400).json({ message: 'Save failed', details: String(error) });
+    }
+  },
+);
 
 app.listen(port, () => {
   console.log(`Workspace server listening on port ${port}`);
