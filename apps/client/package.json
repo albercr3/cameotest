@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "pnpm install --filter @cameotest/shared --filter @cameotest/magicgrid --filter @cameotest/client --ignore-scripts --prefer-offline && pnpm --filter @cameotest/shared build && pnpm --filter @cameotest/magicgrid build",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
