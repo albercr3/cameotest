@@ -17,9 +17,12 @@ import { ModelBrowser, ModelBrowserNode } from './components/ModelBrowser';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { DiagramCanvas } from './components/DiagramCanvas';
 import { DiagramTabs } from './components/DiagramTabs';
+import { ActivityDiagram } from './components/ActivityDiagram';
 import { ToastItem, ToastStack } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SysmlDrawer } from './components/SysmlDrawer';
+import { StateMachineDiagram } from './components/StateMachineDiagram';
+import { ParametricDiagram } from './components/ParametricDiagram';
 import { DraggedElementPayload } from './dragTypes';
 import exampleWorkspace from './examples/example-workspace.json';
 
@@ -1646,15 +1649,15 @@ export default function App() {
     return result.nodeId;
   };
 
-  const createBddDiagram = (ownerId: string | null, baseName = 'New Diagram') => {
+  const createDiagramOfKind = (kind: DiagramKind, ownerId: string | null, baseName = 'New Diagram') => {
     if (!payload) return;
     const now = new Date().toISOString();
     const name = dedupeName(baseName, ownerId);
     const diagram = normalizeDiagram({
       id: crypto.randomUUID(),
       name,
-      kind: 'BDD',
-      type: 'BDD',
+      kind,
+      type: kind,
       ownerId,
       nodes: [],
       edges: [],
@@ -1672,6 +1675,15 @@ export default function App() {
     return diagram.id;
   };
 
+  const createBddDiagram = (ownerId: string | null, baseName = 'New Diagram') =>
+    createDiagramOfKind('BDD', ownerId, baseName);
+  const createStateMachineDiagram = (ownerId: string | null, baseName = 'New State Machine') =>
+    createDiagramOfKind('StateMachine', ownerId, baseName);
+  const createActivityDiagram = (ownerId: string | null, baseName = 'New Activity') =>
+    createDiagramOfKind('Activity', ownerId, baseName);
+  const createParametricDiagram = (ownerId: string | null, baseName = 'New Parametric') =>
+    createDiagramOfKind('Parametric', ownerId, baseName);
+
   const diagramOwnerForNewDiagram = () =>
     selectContainerId(selection?.kind === 'element' ? selection.id : activeDiagram?.ownerId ?? undefined) ?? null;
 
@@ -1679,6 +1691,30 @@ export default function App() {
     runSafely('Create BDD diagram', () => {
       const ownerId = diagramOwnerForNewDiagram();
       createBddDiagram(ownerId);
+      setDiagramMenuOpen(false);
+    });
+  };
+
+  const handleCreateStateMachineFromMenu = () => {
+    runSafely('Create State Machine diagram', () => {
+      const ownerId = diagramOwnerForNewDiagram();
+      createStateMachineDiagram(ownerId);
+      setDiagramMenuOpen(false);
+    });
+  };
+
+  const handleCreateActivityFromMenu = () => {
+    runSafely('Create Activity diagram', () => {
+      const ownerId = diagramOwnerForNewDiagram();
+      createActivityDiagram(ownerId);
+      setDiagramMenuOpen(false);
+    });
+  };
+
+  const handleCreateParametricFromMenu = () => {
+    runSafely('Create Parametric diagram', () => {
+      const ownerId = diagramOwnerForNewDiagram();
+      createParametricDiagram(ownerId);
       setDiagramMenuOpen(false);
     });
   };
@@ -3049,28 +3085,68 @@ export default function App() {
                             >
                               Internal Block (IBD)
                             </button>
+                            <button
+                              type="button"
+                              className="diagram-actions__item"
+                              onClick={handleCreateStateMachineFromMenu}
+                            >
+                              State Machine
+                            </button>
+                            <button
+                              type="button"
+                              className="diagram-actions__item"
+                              onClick={handleCreateActivityFromMenu}
+                            >
+                              Activity
+                            </button>
+                            <button
+                              type="button"
+                              className="diagram-actions__item"
+                              onClick={handleCreateParametricFromMenu}
+                            >
+                              Parametric
+                            </button>
                           </div>
                         ) : null}
                       </div>
                     </div>
-                    <DiagramCanvas
-                      diagram={activeDiagram}
-                      elements={elementsById}
-                      relationships={relationshipsById}
-                      selection={selection}
-                      selectedNodeIds={selectedNodeIds}
-                      onSelectElement={selectElement}
-                      onSelectRelationship={selectRelationship}
-                      onSelectNodes={setSelectedNodeIds}
-                      connectMode={connectMode}
-                      onPortSelect={handlePortSelect}
-                      onPortContextMenu={handlePortContextMenu}
-                      onDropElement={handleDropElement}
-                      onCanvasContextMenu={handleCanvasContextMenu}
-                      onNodeContextMenu={handleCanvasNodeContextMenu}
-                      onPartContextMenu={handlePartContextMenu}
-                      onChange={(diagram, options) => updateDiagram(activeDiagram.id, diagram, options)}
-                    />
+                    {activeDiagramKind === 'BDD' || activeDiagramKind === 'IBD' ? (
+                      <DiagramCanvas
+                        diagram={activeDiagram}
+                        elements={elementsById}
+                        relationships={relationshipsById}
+                        selection={selection}
+                        selectedNodeIds={selectedNodeIds}
+                        onSelectElement={selectElement}
+                        onSelectRelationship={selectRelationship}
+                        onSelectNodes={setSelectedNodeIds}
+                        connectMode={connectMode}
+                        onPortSelect={handlePortSelect}
+                        onPortContextMenu={handlePortContextMenu}
+                        onDropElement={handleDropElement}
+                        onCanvasContextMenu={handleCanvasContextMenu}
+                        onNodeContextMenu={handleCanvasNodeContextMenu}
+                        onPartContextMenu={handlePartContextMenu}
+                        onChange={(diagram, options) => updateDiagram(activeDiagram.id, diagram, options)}
+                      />
+                    ) : null}
+                    {activeDiagramKind === 'StateMachine' ? (
+                      <StateMachineDiagram
+                        diagram={activeDiagram}
+                        elements={elementsById}
+                        relationships={relationshipsById}
+                      />
+                    ) : null}
+                    {activeDiagramKind === 'Activity' ? (
+                      <ActivityDiagram diagram={activeDiagram} elements={elementsById} />
+                    ) : null}
+                    {activeDiagramKind === 'Parametric' ? (
+                      <ParametricDiagram
+                        diagram={activeDiagram}
+                        elements={elementsById}
+                        relationships={relationshipsById}
+                      />
+                    ) : null}
                   </div>
                 ) : (
                   <>

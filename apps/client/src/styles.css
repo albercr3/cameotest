@@ -976,6 +976,34 @@ textarea {
   cursor: not-allowed;
 }
 
+.diagram-placeholder {
+  border: 1px dashed var(--border-muted);
+  border-radius: 12px;
+  padding: 20px;
+  background: linear-gradient(120deg, rgba(53, 117, 255, 0.05), rgba(255, 255, 255, 0));
+  min-height: 260px;
+}
+
+.diagram-placeholder__subtitle {
+  color: var(--text-muted);
+  margin-top: -4px;
+}
+
+.diagram-placeholder__section {
+  margin-top: 16px;
+}
+
+.diagram-placeholder__label {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.diagram-placeholder__muted {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .landing__actions {
   display: flex;
   gap: 8px;

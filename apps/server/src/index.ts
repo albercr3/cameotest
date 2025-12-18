@@ -78,7 +78,7 @@ function loadModel(id: string): ModelFile {
 function loadDiagrams(id: string): DiagramsFile {
   const diagramPath = path.join(workspacesDir, id, 'diagrams.json');
   const parsed = diagramsFileSchema.parse(JSON.parse(fs.readFileSync(diagramPath, 'utf-8')));
-  return parsed;
+  return normalizeDiagrams(parsed);
 }
 
 function loadWorkspace(id: string): WorkspaceFiles {
@@ -116,6 +116,16 @@ function manifestFromSysml(sysmlManifest?: Partial<WorkspaceManifest>): Workspac
     createdAt: sysmlManifest?.createdAt ?? now,
     updatedAt: now,
   } satisfies WorkspaceManifest;
+}
+
+function normalizeDiagrams(diagrams: DiagramsFile | undefined): DiagramsFile {
+  if (!diagrams) return { diagrams: [] };
+  const normalized = diagrams.diagrams.map((diagram) => ({
+    ...diagram,
+    kind: diagram.kind ?? diagram.type,
+    type: diagram.type ?? diagram.kind,
+  }));
+  return { diagrams: normalized } satisfies DiagramsFile;
 }
 
 function writeWorkspace(files: WorkspaceFiles) {
@@ -327,7 +337,7 @@ app.post('/api/workspaces/import', (req, res) => {
       const workspace: WorkspaceFiles = {
         manifest,
         model: sysml.model,
-        diagrams: sysml.diagrams ?? { diagrams: [] },
+        diagrams: normalizeDiagrams(sysml.diagrams),
       };
       const validated = validateWorkspaceFiles(workspace);
       writeWorkspace(validated);

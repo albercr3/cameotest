@@ -1,0 +1,109 @@
+{
+  "diagrams": [
+    {
+      "id": "bbbbbbb1-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "name": "Controller State Machine",
+      "kind": "StateMachine",
+      "type": "StateMachine",
+      "ownerId": "22222222-2222-4222-8222-222222222222",
+      "nodes": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "elementId": "33333333-3333-4333-8333-333333333333",
+          "kind": "Element",
+          "x": 120,
+          "y": 140,
+          "w": 160,
+          "h": 90
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "elementId": "44444444-4444-4444-8444-444444444444",
+          "kind": "Element",
+          "x": 340,
+          "y": 140,
+          "w": 160,
+          "h": 90
+        }
+      ],
+      "edges": [
+        {
+          "id": "00000000-0000-4000-8000-000000000010",
+          "relationshipId": "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "sourceNodeId": "00000000-0000-4000-8000-000000000001",
+          "targetNodeId": "00000000-0000-4000-8000-000000000002",
+          "routingPoints": [],
+          "label": "Idle to Active"
+        }
+      ],
+      "viewSettings": { "gridEnabled": true, "snapEnabled": true, "zoom": 1, "panX": 0, "panY": 0 }
+    },
+    {
+      "id": "bbbbbbb2-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "name": "Control Activity",
+      "kind": "Activity",
+      "type": "Activity",
+      "ownerId": "22222222-2222-4222-8222-222222222222",
+      "nodes": [
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "elementId": "66666666-6666-4666-8666-666666666666",
+          "kind": "Element",
+          "x": 160,
+          "y": 180,
+          "w": 150,
+          "h": 80
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000004",
+          "elementId": "77777777-7777-4777-8777-777777777777",
+          "kind": "Element",
+          "x": 360,
+          "y": 180,
+          "w": 150,
+          "h": 80
+        }
+      ],
+      "edges": [
+        {
+          "id": "00000000-0000-4000-8000-000000000020",
+          "relationshipId": "aaaaaaa2-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "sourceNodeId": "00000000-0000-4000-8000-000000000003",
+          "targetNodeId": "00000000-0000-4000-8000-000000000004",
+          "routingPoints": [],
+          "label": "Start to Compute"
+        }
+      ],
+      "viewSettings": { "gridEnabled": true, "snapEnabled": true, "zoom": 1, "panX": 0, "panY": 0 }
+    },
+    {
+      "id": "bbbbbbb3-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "name": "Latency Parametric",
+      "kind": "Parametric",
+      "type": "Parametric",
+      "ownerId": "22222222-2222-4222-8222-222222222222",
+      "nodes": [
+        {
+          "id": "00000000-0000-4000-8000-000000000005",
+          "elementId": "88888888-8888-4888-8888-888888888888",
+          "kind": "Element",
+          "x": 180,
+          "y": 200,
+          "w": 200,
+          "h": 80
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000006",
+          "elementId": "99999999-9999-4999-8999-999999999999",
+          "kind": "Element",
+          "x": 440,
+          "y": 200,
+          "w": 200,
+          "h": 80
+        }
+      ],
+      "edges": [],
+      "viewSettings": { "gridEnabled": true, "snapEnabled": true, "zoom": 1, "panX": 0, "panY": 0 }
+    }
+  ]
+}
