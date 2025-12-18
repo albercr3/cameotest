@@ -13,6 +13,7 @@ import {
   diagramsFileSchema,
   modelFileSchema,
   sysmlV2JsonSchema,
+  validateWorkspace,
   validateWorkspaceFiles,
   workspaceManifestSchema,
 } from '@cameotest/shared';
@@ -135,6 +136,14 @@ function writeWorkspace(files: WorkspaceFiles) {
   fs.writeFileSync(path.join(dir, 'workspace.json'), JSON.stringify(manifest, null, 2));
   fs.writeFileSync(path.join(dir, 'model.json'), JSON.stringify(files.model, null, 2));
   fs.writeFileSync(path.join(dir, 'diagrams.json'), JSON.stringify(files.diagrams, null, 2));
+}
+
+function ensureWorkspaceValid(candidate: WorkspaceFiles) {
+  const validation = validateWorkspace(candidate);
+  if (validation.issues.length > 0) {
+    return { ok: false as const, validation } as const;
+  }
+  return { ok: true as const } as const;
 }
 
 function starterWorkspace(manifest: WorkspaceManifest): WorkspaceFiles {
@@ -300,6 +309,10 @@ app.post('/api/workspaces/current/save', (req, res) => {
     const validated = validateWorkspaceFiles(candidate);
     const manifest = { ...validated.manifest, id: sanitizeWorkspaceId(validated.manifest.id) };
     const workspace: WorkspaceFiles = { ...validated, manifest };
+    const validity = ensureWorkspaceValid(workspace);
+    if (!validity.ok) {
+      return res.status(400).json({ message: 'Validation failed', issues: validity.validation.issues });
+    }
     writeWorkspace(workspace);
     currentWorkspaceId = manifest.id;
     res.json({ status: 'saved', workspace: manifest });
@@ -322,7 +335,12 @@ app.post('/api/workspaces/current/import', (req, res) => {
     const manifest = loadManifest(workspaceId);
     const diagrams = loadDiagrams(workspaceId);
     manifest.updatedAt = new Date().toISOString();
-    writeWorkspace({ manifest, model, diagrams });
+    const workspace: WorkspaceFiles = { manifest, model, diagrams };
+    const validity = ensureWorkspaceValid(workspace);
+    if (!validity.ok) {
+      return res.status(400).json({ message: 'Validation failed', issues: validity.validation.issues });
+    }
+    writeWorkspace(workspace);
     res.json({ status: 'imported', manifest });
   } catch (error) {
     res.status(400).json({ message: 'Import failed', details: String(error) });
@@ -340,6 +358,10 @@ app.post('/api/workspaces/import', (req, res) => {
         diagrams: normalizeDiagrams(sysml.diagrams),
       };
       const validated = validateWorkspaceFiles(workspace);
+      const validity = ensureWorkspaceValid(validated);
+      if (!validity.ok) {
+        return res.status(400).json({ message: 'Validation failed', issues: validity.validation.issues });
+      }
       writeWorkspace(validated);
       currentWorkspaceId = validated.manifest.id;
       return res.status(201).json({ status: 'imported', manifest: validated.manifest });
@@ -349,6 +371,10 @@ app.post('/api/workspaces/import', (req, res) => {
     const validated = validateWorkspaceFiles(candidate as WorkspaceFiles);
     const manifest = { ...validated.manifest, id: nextAvailableWorkspaceId(validated.manifest.id) };
     const workspace: WorkspaceFiles = { ...validated, manifest };
+    const validity = ensureWorkspaceValid(workspace);
+    if (!validity.ok) {
+      return res.status(400).json({ message: 'Validation failed', issues: validity.validation.issues });
+    }
     writeWorkspace(workspace);
     currentWorkspaceId = manifest.id;
     res.status(201).json({ status: 'imported', manifest });

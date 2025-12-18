@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Diagram, Element, Relationship } from '@cameotest/shared';
+import type { Diagram, Element, Relationship, ValidationIssue } from '@cameotest/shared';
 import { DraggedElementPayload, ELEMENT_DRAG_MIME } from '../dragTypes';
 import { accentForMetaclass } from '../styles/accents';
 
@@ -26,6 +26,7 @@ interface DiagramCanvasProps {
     payload: { elementId: string; clientX: number; clientY: number; position: { x: number; y: number } },
   ) => void;
   onChange: (diagram: Diagram, options?: { transient?: boolean; historyKey?: string }) => void;
+  issues?: ValidationIssue[];
 }
 
 const GRID_SIZE = 20;
@@ -50,6 +51,7 @@ export function DiagramCanvas({
   onNodeContextMenu,
   onPartContextMenu,
   onChange,
+  issues,
 }: DiagramCanvasProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const dragStart = useRef<
@@ -85,6 +87,58 @@ export function DiagramCanvas({
     const map = new Map(diagram.nodes.map((node) => [node.id, node]));
     return map;
   }, [diagram.nodes]);
+
+  const elementNodeIds = useMemo(() => {
+    const map = new Map<string, string[]>();
+    diagram.nodes.forEach((node) => {
+      const list = map.get(node.elementId) ?? [];
+      list.push(node.id);
+      map.set(node.elementId, list);
+    });
+    return map;
+  }, [diagram.nodes]);
+
+  const relationshipEdgeIds = useMemo(() => {
+    const map = new Map<string, string[]>();
+    diagram.edges.forEach((edge) => {
+      const list = map.get(edge.relationshipId) ?? [];
+      list.push(edge.id);
+      map.set(edge.relationshipId, list);
+    });
+    return map;
+  }, [diagram.edges]);
+
+  const issueNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!issues) return ids;
+    issues.forEach((issue) => {
+      if (issue.diagramId && issue.diagramId !== diagram.id) return;
+      if (issue.nodeId && nodesById.has(issue.nodeId)) {
+        ids.add(issue.nodeId);
+      }
+      if (issue.elementId) {
+        const relatedNodes = elementNodeIds.get(issue.elementId) ?? [];
+        relatedNodes.forEach((nodeId) => ids.add(nodeId));
+      }
+    });
+    return ids;
+  }, [diagram.id, elementNodeIds, issues, nodesById]);
+
+  const issueEdgeIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!issues) return ids;
+    issues.forEach((issue) => {
+      if (issue.diagramId && issue.diagramId !== diagram.id) return;
+      if (issue.edgeId) {
+        ids.add(issue.edgeId);
+      }
+      if (issue.relationshipId) {
+        const relatedEdges = relationshipEdgeIds.get(issue.relationshipId) ?? [];
+        relatedEdges.forEach((edgeId) => ids.add(edgeId));
+      }
+    });
+    return ids;
+  }, [diagram.id, issues, relationshipEdgeIds]);
 
   const isIbd = (diagram.kind ?? diagram.type) === 'IBD';
 
@@ -910,9 +964,10 @@ export function DiagramCanvas({
                   const isSelected =
                     selectedNodeIds.includes(node.id) || (selection?.kind === 'element' && element?.id === selection.id);
                   const isPartPort = owner?.metaclass === 'Part';
+                  const hasIssue = issueNodeIds.has(node.id);
                   const portClass = `diagram-node diagram-node--port${isSelected ? ' diagram-node--selected' : ''}${
                     isPartPort ? ' diagram-node--part-port' : ' diagram-node--block-port'
-                  }`;
+                  }${hasIssue ? ' diagram-node--invalid' : ''}`;
                   const portStyle = {
                     '--node-accent': accent,
                     cursor: draggingPortId === node.id ? 'grabbing' : 'grab',
@@ -992,12 +1047,13 @@ export function DiagramCanvas({
               if (!points) return null;
               const isSelected = selection?.kind === 'relationship' && selection.id === edge.relationshipId;
               const isDangling = !relationship;
+              const hasIssue = issueEdgeIds.has(edge.id);
               return (
                 <polyline
                   key={edge.id}
                   className={`diagram-edge${isSelected ? ' diagram-edge--selected' : ''}${
                     isDangling ? ' diagram-edge--dangling' : ''
-                  }`}
+                  }${hasIssue ? ' diagram-edge--invalid' : ''}`}
                   points={points}
                   fill="none"
                   strokeWidth={2}
@@ -1027,13 +1083,14 @@ export function DiagramCanvas({
                 selectedRelationship.type !== 'Connector' &&
                 (selectedRelationship.sourceId === node.elementId ||
                   selectedRelationship.targetId === node.elementId);
+              const hasIssue = issueNodeIds.has(node.id);
               return (
                 <g
                   key={node.id}
                   transform={`translate(${node.x} ${node.y})`}
                   className={`diagram-node${isSelected ? ' diagram-node--selected' : ''}${
                     missing ? ' diagram-node--missing' : ''
-                  }${isRelated ? ' diagram-node--related' : ''}${metaclassClass}`}
+                  }${isRelated ? ' diagram-node--related' : ''}${metaclassClass}${hasIssue ? ' diagram-node--invalid' : ''}`}
                   style={accentStyle}
                   onPointerDown={(event) => handlePointerDown(event, node.id)}
                   onContextMenu={(event) => {

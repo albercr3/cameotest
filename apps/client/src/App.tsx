@@ -10,7 +10,14 @@ import type {
   WorkspaceFiles,
   WorkspaceManifest,
 } from '@cameotest/shared';
-import { IR_VERSION, metaclassSchema, relationshipTypeSchema, validateWorkspaceFiles } from '@cameotest/shared';
+import {
+  IR_VERSION,
+  ValidationIssue,
+  validateWorkspace,
+  metaclassSchema,
+  relationshipTypeSchema,
+  validateWorkspaceFiles,
+} from '@cameotest/shared';
 import { Panel } from './components/Panel';
 import { Toolbar } from './components/Toolbar';
 import { ModelBrowser, ModelBrowserNode } from './components/ModelBrowser';
@@ -91,7 +98,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
     const message = payload?.message ?? `Request failed with status ${response.status}`;
     const details = payload?.details;
     const combined = details ? `${message}: ${details}` : message;
-    throw new Error(combined);
+    const error = new Error(combined) as Error & { issues?: ValidationIssue[] };
+    if (Array.isArray(payload?.issues)) {
+      error.issues = payload.issues as ValidationIssue[];
+    }
+    throw error;
   }
   return payload as T;
 }
@@ -167,6 +178,7 @@ export default function App() {
   const [connectMode, setConnectMode] = useState(false);
   const [pendingConnectorPortId, setPendingConnectorPortId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [diagramMenuOpen, setDiagramMenuOpen] = useState(false);
   const [codeDrawerOpen, setCodeDrawerOpen] = useState(false);
@@ -206,6 +218,23 @@ export default function App() {
   const dismissToast = useCallback((id: string) => {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
+
+  const recordValidationIssues = useCallback(
+    (issues?: ValidationIssue[] | null) => {
+      if (!issues || issues.length === 0) return false;
+      setValidationIssues(issues);
+      setBanner({
+        kind: 'error',
+        messages: [
+          `Validation failed (${issues.length} issue${issues.length === 1 ? '' : 's'})`,
+          issues[0]?.message ?? 'Review highlighted items.',
+        ],
+      });
+      showToast(`Validation failed: ${issues[0]?.message ?? 'See details'}`, 'error');
+      return true;
+    },
+    [showToast],
+  );
 
   const runSafely = useCallback(
     (label: string, action: () => void) => {
@@ -447,6 +476,15 @@ export default function App() {
     setWorkspaceNameDraft(payload?.manifest.name ?? '');
   }, [payload?.manifest.name]);
 
+  useEffect(() => {
+    if (!payload) {
+      setValidationIssues([]);
+      return;
+    }
+    const { issues } = validateWorkspace(payload);
+    setValidationIssues(issues);
+  }, [payload]);
+
   const tree = useMemo<ModelBrowserNode[]>(() => {
     if (!payload) return [];
     const elementNodes = new Map<string, Extract<ModelBrowserNode, { kind: 'element' }>>();
@@ -657,6 +695,29 @@ export default function App() {
       return acc;
     }, {});
   }, [payload]);
+
+  const validationSummary = useMemo(
+    () => ({
+      errors: validationIssues.filter((issue) => issue.severity === 'error').length,
+      warnings: validationIssues.filter((issue) => issue.severity === 'warning').length,
+    }),
+    [validationIssues],
+  );
+
+  const activeDiagramIssues = useMemo(() => {
+    if (!activeDiagram) return [] as ValidationIssue[];
+    const elementIds = new Set(activeDiagram.nodes.map((node) => node.elementId));
+    const relationshipIds = new Set(activeDiagram.edges.map((edge) => edge.relationshipId));
+    return validationIssues.filter((issue) => {
+      if (issue.diagramId && issue.diagramId !== activeDiagram.id) return false;
+      if (issue.diagramId === activeDiagram.id) return true;
+      if (issue.nodeId && activeDiagram.nodes.some((node) => node.id === issue.nodeId)) return true;
+      if (issue.edgeId && activeDiagram.edges.some((edge) => edge.id === issue.edgeId)) return true;
+      if (issue.elementId && elementIds.has(issue.elementId)) return true;
+      if (issue.relationshipId && relationshipIds.has(issue.relationshipId)) return true;
+      return false;
+    });
+  }, [activeDiagram, validationIssues]);
 
   useEffect(() => {
     if (!payload) return;
@@ -1193,8 +1254,11 @@ export default function App() {
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : String(error);
-      setBanner({ kind: 'error', messages: ['Unable to load example workspace', message] });
-      setStatus('Example load failed');
+      const validationHandled = recordValidationIssues((error as { issues?: ValidationIssue[] })?.issues);
+      setStatus(validationHandled ? 'Validation failed' : 'Example load failed');
+      if (!validationHandled) {
+        setBanner({ kind: 'error', messages: ['Unable to load example workspace', message] });
+      }
     } finally {
       setLoadingExample(false);
     }
@@ -1229,8 +1293,11 @@ export default function App() {
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : String(error);
-      setBanner({ kind: 'error', messages: ['Import failed', message] });
-      setStatus('Import failed');
+      const validationHandled = recordValidationIssues((error as { issues?: ValidationIssue[] })?.issues);
+      setStatus(validationHandled ? 'Validation failed' : 'Import failed');
+      if (!validationHandled) {
+        setBanner({ kind: 'error', messages: ['Import failed', message] });
+      }
     } finally {
       setImportingWorkspace(false);
     }
@@ -1251,8 +1318,11 @@ export default function App() {
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : String(error);
-      setBanner({ kind: 'error', messages: ['SysML import failed', message] });
-      setStatus('SysML import failed');
+      const validationHandled = recordValidationIssues((error as { issues?: ValidationIssue[] })?.issues);
+      setStatus(validationHandled ? 'Validation failed' : 'SysML import failed');
+      if (!validationHandled) {
+        setBanner({ kind: 'error', messages: ['SysML import failed', message] });
+      }
     } finally {
       setImportingSysml(false);
     }
@@ -2347,10 +2417,13 @@ export default function App() {
       } catch (error) {
         console.error(error);
         const message = error instanceof Error ? error.message : String(error);
-        setStatus('Save failed');
+        const validationHandled = recordValidationIssues((error as { issues?: ValidationIssue[] })?.issues);
+        setStatus(validationHandled ? 'Validation failed' : 'Save failed');
         setAutosaveError(message);
-        setBanner({ kind: 'error', messages: ['Save failed', message] });
-        showToast(`Save failed: ${message}`, 'error');
+        if (!validationHandled) {
+          setBanner({ kind: 'error', messages: ['Save failed', message] });
+          showToast(`Save failed: ${message}`, 'error');
+        }
         if (options?.auto) {
           setAutosaveEnabled(false);
         }
@@ -2358,7 +2431,7 @@ export default function App() {
         setSaving(false);
       }
     },
-    [payload, showToast],
+    [payload, recordValidationIssues, showToast],
   );
 
   const retrySave = useCallback(() => {
@@ -2874,6 +2947,22 @@ export default function App() {
             </div>
           </div>
         ) : null}
+        {payload && validationIssues.length ? (
+          <div className="banner" role="status">
+            <div>
+              Validation detected {validationSummary.errors} error{validationSummary.errors === 1 ? '' : 's'}
+              {validationSummary.warnings ? ` and ${validationSummary.warnings} warning${validationSummary.warnings === 1 ? '' : 's'}` : ''}
+              . Review highlighted items in the workspace.
+            </div>
+            <ul className="banner__list">
+              {validationIssues.slice(0, 3).map((issue, index) => (
+                <li key={`${issue.code}-${issue.elementId ?? issue.relationshipId ?? issue.diagramId ?? index}`}>
+                  {issue.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
         {shortcutsOpen ? (
           <div
@@ -3047,6 +3136,11 @@ export default function App() {
                         onSelect={setActiveDiagramId}
                       />
                       <span className="diagram-meta">Type: {activeDiagramKind}</span>
+                      {activeDiagramIssues.length ? (
+                        <span className="diagram-meta diagram-meta--error">
+                          {activeDiagramIssues.length} validation issue{activeDiagramIssues.length === 1 ? '' : 's'}
+                        </span>
+                      ) : null}
                       {contextBlockName ? (
                         <span className="diagram-meta diagram-meta--context">Context: {contextBlockName}</span>
                       ) : null}
@@ -3127,6 +3221,7 @@ export default function App() {
                         onCanvasContextMenu={handleCanvasContextMenu}
                         onNodeContextMenu={handleCanvasNodeContextMenu}
                         onPartContextMenu={handlePartContextMenu}
+                        issues={activeDiagramIssues}
                         onChange={(diagram, options) => updateDiagram(activeDiagram.id, diagram, options)}
                       />
                     ) : null}

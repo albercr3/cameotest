@@ -593,6 +593,12 @@ select:focus {
   gap: 8px;
 }
 
+.banner__list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: inherit;
+}
+
 .model-browser {
   display: flex;
   flex-direction: column;
@@ -912,6 +918,12 @@ textarea {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   font-weight: 700;
+}
+
+.diagram-meta--error {
+  background: #fef2f2;
+  border-color: #ef4444;
+  color: #991b1b;
 }
 
 .diagram-meta--count {
@@ -1237,6 +1249,17 @@ textarea {
   opacity: 0.28;
 }
 
+.diagram-node--invalid rect,
+.diagram-node--invalid circle {
+  stroke: #f43f5e;
+  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.18);
+}
+
+.diagram-node--invalid .diagram-node__accent {
+  fill: #f43f5e;
+  opacity: 0.24;
+}
+
 .diagram-marquee {
   fill: rgba(79, 70, 229, 0.08);
   stroke: rgba(79, 70, 229, 0.6);
@@ -1368,6 +1391,11 @@ textarea {
   stroke: #0ea5e9;
   stroke-width: 3;
   filter: drop-shadow(0 0 10px rgba(14, 165, 233, 0.35));
+}
+
+.diagram-edge--invalid {
+  stroke: #dc2626;
+  stroke-dasharray: 6 3;
 }
 
 .diagram-edge__label rect {
