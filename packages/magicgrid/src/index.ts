@@ -34,3 +34,4 @@ export {
   defaultMagicGridWorkspace,
   defaultManifest,
 } from './defaults.js';
+export { upgradeWorkspace, type MagicGridMigrationResult, type MigrationStatus } from './migrations.js';

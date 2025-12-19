@@ -6,7 +6,7 @@ import {
   MagicGridWorkspace,
   MagicGridWorkspaceInput,
   magicGridManifestSchema,
-  magicGridWorkspaceSchema,
+  upgradeWorkspace,
   validateMagicGridWorkspace,
 } from '@cameotest/magicgrid';
 
@@ -42,7 +42,31 @@ export interface MagicGridRepository {
     metadata?: WorkspaceMetadata,
   ): Promise<MagicGridManifestWithVersion>;
   nextAvailableId(baseId: string): Promise<string>;
+  migrateWorkspace(id: string): Promise<MagicGridManifestWithVersion>;
   bootstrapLegacyWorkspaces(): Promise<void>;
+}
+
+export class MagicGridMigrationRequiredError extends Error {
+  constructor(
+    message: string,
+    public readonly workspaceId: string,
+    public readonly fromVersion: string,
+    public readonly targetVersion: string,
+    public readonly warnings: string[] = [],
+    public readonly reason?: string,
+  ) {
+    super(message);
+  }
+}
+
+export class MagicGridUnsupportedVersionError extends Error {
+  constructor(
+    message: string,
+    public readonly workspaceId: string,
+    public readonly schemaVersion: string,
+  ) {
+    super(message);
+  }
 }
 
 export class FileMagicGridRepository implements MagicGridRepository {
@@ -64,7 +88,18 @@ export class FileMagicGridRepository implements MagicGridRepository {
       if (existing) continue;
       const legacyWorkspace = await this.readWorkspaceFromDir(path.join(this.options.legacyDir, id));
       if (!legacyWorkspace) continue;
-      await this.createWorkspace(legacyWorkspace);
+      try {
+        const normalized = this.normalizeWorkspace({
+          ...legacyWorkspace,
+          manifest: {
+            ...(legacyWorkspace.manifest as MagicGridManifestWithVersion),
+            version: (legacyWorkspace.manifest as MagicGridManifestWithVersion | undefined)?.version ?? 1,
+          },
+        });
+        await this.createWorkspace(normalized);
+      } catch {
+        // Ignore legacy entries that are not valid MagicGrid workspaces.
+      }
     }
   }
 
@@ -87,11 +122,12 @@ export class FileMagicGridRepository implements MagicGridRepository {
   }
 
   async getWorkspace(id: string): Promise<MagicGridWorkspaceWithVersion | null> {
-    return this.readWorkspaceFromDir(this.workspaceDir(id));
+    return this.loadWorkspaceWithMigration(id);
   }
 
   async getManifest(id: string): Promise<MagicGridManifestWithVersion | null> {
-    return this.readManifest(id);
+    const workspace = await this.loadWorkspaceWithMigration(id);
+    return workspace?.manifest ?? null;
   }
 
   async createWorkspace(
@@ -117,26 +153,26 @@ export class FileMagicGridRepository implements MagicGridRepository {
     metadata?: WorkspaceMetadata,
   ): Promise<MagicGridManifestWithVersion> {
     const id = this.sanitizeId(workspace.manifest.id);
-    const existingManifest = await this.readManifest(id);
-    if (!existingManifest) {
+    const existingWorkspace = await this.loadWorkspaceWithMigration(id);
+    if (!existingWorkspace) {
       throw new Error(`Workspace ${id} not found`);
     }
 
-    const requiredVersion = expectedVersion ?? existingManifest.version;
-    if (requiredVersion !== existingManifest.version) {
+    const requiredVersion = expectedVersion ?? existingWorkspace.manifest.version;
+    if (requiredVersion !== existingWorkspace.manifest.version) {
       throw new VersionConflictError(
         `Version conflict for workspace ${id}`,
         id,
         requiredVersion,
-        existingManifest.version,
+        existingWorkspace.manifest.version,
       );
     }
 
     const manifest = this.normalizeManifest({
       ...workspace.manifest,
       id,
-      version: existingManifest.version + 1,
-      createdAt: existingManifest.createdAt,
+      version: existingWorkspace.manifest.version + 1,
+      createdAt: existingWorkspace.manifest.createdAt,
       updatedAt: new Date().toISOString(),
     });
     const normalized = this.normalizeWorkspace({ ...workspace, manifest });
@@ -175,6 +211,16 @@ export class FileMagicGridRepository implements MagicGridRepository {
     return nextManifest;
   }
 
+  async migrateWorkspace(id: string): Promise<MagicGridManifestWithVersion> {
+    const workspace = await this.loadWorkspaceWithMigration(id);
+    if (!workspace) {
+      throw new Error(`Workspace ${id} not found`);
+    }
+    const metadata = (await this.readMetadata(id)) ?? undefined;
+    await this.writeWorkspace(workspace, metadata);
+    return workspace.manifest;
+  }
+
   async nextAvailableId(rawId: string): Promise<string> {
     const base = this.sanitizeId(rawId);
     let candidate = base;
@@ -184,6 +230,54 @@ export class FileMagicGridRepository implements MagicGridRepository {
       suffix += 1;
     }
     return candidate;
+  }
+
+  private async loadWorkspaceWithMigration(
+    id: string,
+    options?: { persist?: boolean },
+  ): Promise<MagicGridWorkspaceWithVersion | null> {
+    const raw = await this.readWorkspaceFromDir(this.workspaceDir(id));
+    if (!raw) return null;
+
+    const migration = upgradeWorkspace(raw, (raw.manifest as MagicGridManifest | undefined)?.schemaVersion);
+    if (migration.status === 'unsupported') {
+      throw new MagicGridUnsupportedVersionError(
+        migration.reason ?? `Workspace ${id} uses unsupported schema version`,
+        id,
+        migration.fromVersion,
+      );
+    }
+    if (migration.status === 'manual-required') {
+      throw new MagicGridMigrationRequiredError(
+        migration.reason ?? `Workspace ${id} requires manual migration`,
+        id,
+        migration.fromVersion,
+        migration.toVersion,
+        migration.warnings,
+        migration.reason,
+      );
+    }
+
+    const migratedFromVersion =
+      (raw.manifest as MagicGridManifestWithVersion | undefined)?.migratedFromVersion ??
+      migration.workspace.manifest.migratedFromVersion ??
+      migration.fromVersion;
+
+    const manifest = this.normalizeManifest({
+      ...migration.workspace.manifest,
+      id: raw.manifest.id,
+      version: (raw.manifest as MagicGridManifestWithVersion | undefined)?.version ?? 1,
+      migratedFromVersion,
+      migrationWarnings: migration.warnings,
+    });
+    const workspace = this.normalizeWorkspace({ ...migration.workspace, manifest });
+
+    if (migration.status === 'upgraded' && options?.persist !== false) {
+      const metadata = (await this.readMetadata(id)) ?? undefined;
+      await this.writeWorkspace(workspace, metadata);
+    }
+
+    return workspace;
   }
 
   private sanitizeId(rawId: string): string {
@@ -202,7 +296,15 @@ export class FileMagicGridRepository implements MagicGridRepository {
       createdAt: manifest.createdAt,
     });
     const version = typeof manifest.version === 'number' && manifest.version > 0 ? manifest.version : 1;
-    return { ...parsed, id: this.sanitizeId(parsed.id), version } satisfies MagicGridManifestWithVersion;
+    const migratedFromVersion = parsed.migratedFromVersion ?? parsed.schemaVersion ?? manifest.schemaVersion;
+    const migrationWarnings = parsed.migrationWarnings ?? [];
+    return {
+      ...parsed,
+      id: this.sanitizeId(parsed.id),
+      version,
+      migratedFromVersion,
+      migrationWarnings,
+    } satisfies MagicGridManifestWithVersion;
   }
 
   private normalizeWorkspace(workspace: MagicGridWorkspaceInput): MagicGridWorkspaceWithVersion {
@@ -215,29 +317,30 @@ export class FileMagicGridRepository implements MagicGridRepository {
   }
 
   private async readManifest(id: string): Promise<MagicGridManifestWithVersion | null> {
-    const dir = this.workspaceDir(id);
     try {
-      const content = await fs.readFile(path.join(dir, this.workspaceFile), 'utf-8');
-      const parsed = magicGridWorkspaceSchema.parse(JSON.parse(content));
-      const manifest = this.normalizeManifest({
-        ...parsed.manifest,
-        version: (parsed.manifest as MagicGridManifestWithVersion).version ?? 1,
-      });
-      return manifest;
-    } catch {
+      const workspace = await this.loadWorkspaceWithMigration(id, { persist: true });
+      return workspace?.manifest ?? null;
+    } catch (error) {
+      if (error instanceof MagicGridMigrationRequiredError || error instanceof MagicGridUnsupportedVersionError) {
+        const raw = await this.readWorkspaceFromDir(this.workspaceDir(id));
+        if (!raw) return null;
+        return this.normalizeManifest({
+          ...(raw.manifest as MagicGridManifestWithVersion),
+          version: (raw.manifest as MagicGridManifestWithVersion | undefined)?.version ?? 1,
+          migrationWarnings: [
+            ...(((raw.manifest as MagicGridManifestWithVersion).migrationWarnings as string[] | undefined) ?? []),
+            (error as Error).message,
+          ],
+        });
+      }
       return null;
     }
   }
 
-  private async readWorkspaceFromDir(dir: string): Promise<MagicGridWorkspaceWithVersion | null> {
+  private async readWorkspaceFromDir(dir: string): Promise<MagicGridWorkspaceInput | null> {
     try {
       const content = await fs.readFile(path.join(dir, this.workspaceFile), 'utf-8');
-      const parsed = magicGridWorkspaceSchema.parse(JSON.parse(content));
-      const manifest = this.normalizeManifest({
-        ...parsed.manifest,
-        version: (parsed.manifest as MagicGridManifestWithVersion).version ?? 1,
-      });
-      return this.normalizeWorkspace({ ...parsed, manifest });
+      return JSON.parse(content) as MagicGridWorkspaceInput;
     } catch {
       return null;
     }

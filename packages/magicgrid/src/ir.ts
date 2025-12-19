@@ -10,6 +10,8 @@ export const magicGridManifestSchema = z
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     schemaVersion: z.string().default(MAGICGRID_VERSION),
+    migratedFromVersion: z.string().optional(),
+    migrationWarnings: z.array(z.string()).default([]),
     tags: z.record(z.string()).default({}),
   })
   .passthrough();
