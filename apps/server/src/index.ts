@@ -1,5 +1,5 @@
 import cors from 'cors';
-import express from 'express';
+import express, { type Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuid } from 'uuid';
@@ -29,6 +29,8 @@ import {
 import { attachUser, requireUser, requireWorkspacePermission } from './auth.js';
 import {
   FileMagicGridRepository,
+  MagicGridMigrationRequiredError,
+  MagicGridUnsupportedVersionError,
   type MagicGridManifestWithVersion,
   type MagicGridWorkspaceWithVersion,
 } from './magicgridRepository.js';
@@ -60,6 +62,27 @@ app.use(attachUser());
 
 let currentWorkspaceId: string | null = null;
 let currentMagicGridId: string | null = null;
+
+function handleMagicGridMigrationError(res: Response, workspaceId: string, error: unknown): boolean {
+  if (error instanceof MagicGridUnsupportedVersionError) {
+    res.status(409).json({
+      message: `MagicGrid workspace ${workspaceId} uses unsupported schema ${error.schemaVersion}`,
+      schemaVersion: error.schemaVersion,
+    });
+    return true;
+  }
+  if (error instanceof MagicGridMigrationRequiredError) {
+    res.status(409).json({
+      message: `MagicGrid workspace ${workspaceId} requires migration`,
+      fromVersion: error.fromVersion,
+      toVersion: error.targetVersion,
+      warnings: error.warnings,
+      reason: error.reason,
+    });
+    return true;
+  }
+  return false;
+}
 
 function normalizeDiagrams(diagrams: DiagramsFile | undefined): DiagramsFile {
   if (!diagrams) return { diagrams: [] };
@@ -694,9 +717,27 @@ app.post('/api/magicgrid/workspaces/:id/open', requireUser(), async (req, res) =
     currentMagicGridId = manifest.id;
     res.json({ current: manifest });
   } catch (error) {
+    if (handleMagicGridMigrationError(res, id, error)) return;
     res.status(404).json({ message: `MagicGrid workspace ${id} not found`, details: String(error) });
   }
 });
+
+app.post(
+  '/api/magicgrid/workspaces/:id/migrate',
+  requireUser(),
+  requireWorkspacePermission('write'),
+  async (req, res) => {
+    const { id } = req.params;
+    try {
+      const manifest = await magicGridRepository.migrateWorkspace(id);
+      currentMagicGridId = manifest.id;
+      res.json({ status: 'migrated', manifest });
+    } catch (error) {
+      if (handleMagicGridMigrationError(res, id, error)) return;
+      res.status(404).json({ message: `MagicGrid workspace ${id} not found`, details: String(error) });
+    }
+  },
+);
 
 app.get('/api/magicgrid/workspaces/current', requireUser(), async (_req, res) => {
   const workspaceId = currentMagicGridId;
@@ -708,6 +749,7 @@ app.get('/api/magicgrid/workspaces/current', requireUser(), async (_req, res) =>
     if (!manifest) throw new Error('Missing manifest');
     res.json({ current: manifest });
   } catch (error) {
+    if (handleMagicGridMigrationError(res, workspaceId, error)) return;
     res.status(404).json({ message: 'Current MagicGrid workspace unavailable', details: String(error) });
   }
 });
@@ -721,6 +763,7 @@ app.get('/api/magicgrid/workspaces/current/load', requireUser(), async (_req, re
     if (!workspace) throw new Error('Workspace not found');
     res.json(workspace);
   } catch (error) {
+    if (handleMagicGridMigrationError(res, currentMagicGridId, error)) return;
     res.status(500).json({ message: 'Failed to load MagicGrid workspace', details: String(error) });
   }
 });
@@ -751,6 +794,7 @@ app.post(
       currentMagicGridId = manifest.id;
       res.json({ status: 'saved', manifest });
     } catch (error) {
+      if (handleMagicGridMigrationError(res, currentMagicGridId, error)) return;
       if (error instanceof VersionConflictError) {
         return res.status(409).json({
           message: 'MagicGrid workspace has been updated elsewhere',

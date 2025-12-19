@@ -136,6 +136,8 @@ export const defaultManifest: MagicGridManifest = magicGridManifestSchema.parse(
   createdAt: FIXED_TIMESTAMP,
   updatedAt: FIXED_TIMESTAMP,
   schemaVersion: MAGICGRID_VERSION,
+  migratedFromVersion: MAGICGRID_VERSION,
+  migrationWarnings: [],
   tags: { domain: 'layout' },
 });
 
