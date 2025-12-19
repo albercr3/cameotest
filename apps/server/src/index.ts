@@ -34,7 +34,7 @@ import {
 } from './magicgridRepository.js';
 import { FileWorkspaceRepository, VersionConflictError } from './workspaceRepository.js';
 
-const app = express();
+export const app = express();
 const port = process.env.PORT || 3001;
 
 const __filename = fileURLToPath(import.meta.url);
@@ -763,6 +763,8 @@ app.post(
   },
 );
 
-app.listen(port, () => {
-  console.log(`Workspace server listening on port ${port}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(port, () => {
+    console.log(`Workspace server listening on port ${port}`);
+  });
+}
