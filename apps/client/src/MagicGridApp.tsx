@@ -4,6 +4,7 @@ import {
   defaultGridElements,
   defaultLayoutMetadata,
   defaultMagicGridWorkspace,
+  constraintSchema,
   gridElementSchema,
   layoutMetadataSchema,
   magicGridWorkspaceSchema,
@@ -19,6 +20,7 @@ import { MagicGridCanvas } from './components/magicgrid/MagicGridCanvas';
 import { MagicGridPalette } from './components/magicgrid/MagicGridPalette';
 import { MagicGridProperties } from './components/magicgrid/MagicGridProperties';
 import { MagicGridToolbar } from './components/magicgrid/MagicGridToolbar';
+import type { MagicGridConstraintDraft } from './components/magicgrid/MagicGridConstraints';
 
 export type MagicGridManifestWithVersion = MagicGridManifest & { version: number };
 export type MagicGridWorkspaceWithVersion = MagicGridWorkspace & {
@@ -220,15 +222,53 @@ export function MagicGridApp() {
     }));
   }
 
+  function handleAddConstraint(constraint: MagicGridConstraintDraft) {
+    try {
+      const candidate = constraintSchema.parse({
+        ...constraint,
+        id: crypto.randomUUID(),
+      });
+      updateWorkspace((current) => ({
+        ...current,
+        constraints: [...current.constraints, candidate],
+      }));
+      toast(`Added ${candidate.label || candidate.kind} constraint`);
+    } catch (error) {
+      setStatus(String(error));
+    }
+  }
+
+  function handleUpdateConstraint(id: string, updates: Partial<MagicGridConstraint>) {
+    try {
+      updateWorkspace((current) => ({
+        ...current,
+        constraints: current.constraints.map((constraint: MagicGridConstraint) =>
+          constraint.id === id ? constraintSchema.parse({ ...constraint, ...updates }) : constraint,
+        ),
+      }));
+    } catch (error) {
+      setStatus(String(error));
+    }
+  }
+
+  function handleDeleteConstraint(id: string) {
+    updateWorkspace((current) => ({
+      ...current,
+      constraints: current.constraints.filter((constraint: MagicGridConstraint) => constraint.id !== id),
+    }));
+  }
+
   function handleDeleteElement(id: string) {
     updateWorkspace(
       (current) => ({
         ...current,
         elements: current.elements.filter((element: GridElement) => element.id !== id),
-        constraints: current.constraints.map((constraint: MagicGridConstraint) => ({
-          ...constraint,
-          appliesTo: constraint.appliesTo.filter((target: string) => target !== id),
-        })) as MagicGridConstraint[],
+        constraints: current.constraints
+          .map((constraint: MagicGridConstraint) => ({
+            ...constraint,
+            appliesTo: constraint.appliesTo.filter((target: string) => target !== id),
+          }))
+          .filter((constraint: MagicGridConstraint) => constraint.appliesTo.length > 0),
       }),
       null,
     );
@@ -393,30 +433,16 @@ export function MagicGridApp() {
         <div className="magicgrid__column magicgrid__column--properties">
           <MagicGridProperties
             element={selectedElement}
+            elements={workspace?.elements ?? defaultGridElements}
+            constraints={workspace?.constraints ?? defaultConstraints}
             onChange={handleUpdateElement}
             onDelete={handleDeleteElement}
+            onAddConstraint={handleAddConstraint}
+            onUpdateConstraint={handleUpdateConstraint}
+            onDeleteConstraint={handleDeleteConstraint}
             layout={workspace?.layout ?? defaultLayoutMetadata}
             onLayoutChange={handleUpdateLayout}
           />
-          <Panel title="Constraints" subtitle="Applied to the selected layout">
-            <div className="magicgrid__constraints">
-              {(workspace?.constraints ?? defaultConstraints).map((constraint: MagicGridConstraint) => (
-                <div key={constraint.id} className="magicgrid__constraint">
-                  <div className="magicgrid__constraint-title">{constraint.label || constraint.kind}</div>
-                  <div className="magicgrid__constraint-meta">
-                    <span>Kind: {constraint.kind}</span>
-                    {(constraint.kind === 'alignment' || constraint.kind === 'spacing') && (
-                      <span>Axis: {constraint.axis}</span>
-                    )}
-                    {constraint.kind === 'spacing' ? <span>Gap: {constraint.gap}</span> : null}
-                    {constraint.kind === 'alignment' ? <span>Track: {constraint.track}</span> : null}
-                    {constraint.kind === 'lock' ? <span>Anchor: {constraint.anchor}</span> : null}
-                    <span>Applies to: {constraint.appliesTo.length}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Panel>
         </div>
       </div>
       <ToastStack toasts={toasts} onDismiss={closeToast} />

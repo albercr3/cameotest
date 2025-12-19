@@ -242,6 +242,11 @@
   background: #f9fafb;
 }
 
+.magicgrid__constraint--builder {
+  background: #fff;
+  border-style: dashed;
+}
+
 .magicgrid__constraint-title {
   font-weight: 700;
 }
@@ -252,6 +257,48 @@
   flex-wrap: wrap;
   color: #6b7280;
   font-size: 12px;
+}
+
+.magicgrid-constraints {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.magicgrid-constraints__header {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.magicgrid-constraints__header label {
+  flex: 1;
+}
+
+.magicgrid-constraints__grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.magicgrid-constraints__fields {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.magicgrid-constraints__applies {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.magicgrid-constraints__applies-list {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .workspace-shell {
