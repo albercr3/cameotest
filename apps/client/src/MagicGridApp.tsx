@@ -34,28 +34,52 @@ type LoadState = 'idle' | 'loading' | 'saving';
 const HISTORY_LIMIT = 30;
 const AUTOSAVE_DELAY = 1500;
 
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    const text = await response.text();
-    const message = text || `Request failed with status ${response.status}`;
-    throw new Error(message);
+class HttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'HttpError';
   }
-  return (await response.json()) as T;
+}
+
+async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, options);
+  const text = await response.text();
+  let parsed: unknown = text;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = text;
+  }
+  if (!response.ok) {
+    const message =
+      (typeof parsed === 'string' ? parsed : (parsed as { message?: string })?.message) ??
+      `Request failed with status ${response.status}`;
+    throw new HttpError(message, response.status, parsed);
+  }
+  if (!text) {
+    return {} as T;
+  }
+  return (parsed as T) ?? ({} as T);
+}
+
+async function getJson<T>(url: string): Promise<T> {
+  return requestJson<T>(url);
 }
 
 async function postJson<T>(url: string, body?: unknown): Promise<T> {
-  const response = await fetch(url, {
+  return requestJson<T>(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const text = await response.text();
-  if (!response.ok) {
-    const message = text || `Request failed with status ${response.status}`;
-    throw new Error(message);
-  }
-  return text ? ((JSON.parse(text) as T) ?? ({} as T)) : ({} as T);
+}
+
+async function deleteJson<T>(url: string): Promise<T> {
+  return requestJson<T>(url, { method: 'DELETE' });
 }
 
 export function MagicGridApp() {
@@ -72,7 +96,9 @@ export function MagicGridApp() {
   const [autosaveError, setAutosaveError] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('idle');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [dragState, setDragState] = useState<DragState | null>(null);
   const autosaveTimer = useRef<number | null>(null);
+  const creatingDefaultRef = useRef(false);
 
   const selectedElement = useMemo(
     () => workspace?.elements.find((element: GridElement) => element.id === selection) ?? null,
@@ -80,7 +106,7 @@ export function MagicGridApp() {
   );
 
   useEffect(() => {
-    fetchWorkspaces();
+    fetchWorkspaces({ bootstrapOnEmpty: true });
     return () => {
       if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
     };
@@ -94,20 +120,50 @@ export function MagicGridApp() {
     }, AUTOSAVE_DELAY);
   }, [dirty, autosaveEnabled, saving, loadState, workspace]);
 
+  useEffect(() => {
+    setDragState(null);
+  }, [workspace?.manifest.id]);
+
   const canUndo = history.length > 1;
   const canRedo = redo.length > 0;
 
-  async function fetchWorkspaces() {
+  function getErrorMessage(error: unknown) {
+    if (error instanceof HttpError) return error.message;
+    if (error instanceof Error) return error.message;
+    return String(error);
+  }
+
+  function toast(message: string, kind: ToastItem['kind'] = 'info', duration?: number) {
+    setToasts((items) => [...items, { id: crypto.randomUUID(), message, kind, duration }]);
+  }
+
+  function closeToast(id: string) {
+    setToasts((items) => items.filter((toast) => toast.id !== id));
+  }
+
+  function isVersionConflict(error: unknown): error is HttpError {
+    return error instanceof HttpError && error.status === 409;
+  }
+
+  async function fetchWorkspaces(options: { bootstrapOnEmpty?: boolean; activeWorkspaceId?: string } = {}) {
+    const { bootstrapOnEmpty = false, activeWorkspaceId = activeId } = options;
     try {
       setStatus('Loading MagicGrid workspaces…');
       const list = await getJson<MagicGridManifestWithVersion[]>('/api/magicgrid/workspaces');
       setWorkspaces(list);
-      setStatus(list.length ? 'Select a MagicGrid workspace to begin.' : 'No MagicGrid workspaces yet.');
-      if (list.length && !activeId) {
+      if (list.length === 0) {
+        setStatus('No MagicGrid workspaces yet.');
+        if (bootstrapOnEmpty && !creatingDefaultRef.current) {
+          await createDefaultWorkspace();
+        }
+        return;
+      }
+      setStatus('Select a MagicGrid workspace to begin.');
+      if (list.length && !activeWorkspaceId) {
         await openWorkspace(list[0].id);
       }
     } catch (error) {
-      setStatus(String(error));
+      setStatus(getErrorMessage(error));
     }
   }
 
@@ -130,7 +186,9 @@ export function MagicGridApp() {
       setAutosaveError(null);
       setStatus(`Opened ${validated.manifest.name}`);
     } catch (error) {
-      setStatus(String(error));
+      const message = getErrorMessage(error);
+      setStatus(message);
+      toast(`Failed to open MagicGrid workspace: ${message}`, 'error', 4000);
     } finally {
       setLoadState('idle');
     }
@@ -154,20 +212,105 @@ export function MagicGridApp() {
         name: manifest.name,
         description: manifest.description,
       });
-      await fetchWorkspaces();
+      await fetchWorkspaces({ bootstrapOnEmpty: true, activeWorkspaceId: manifest.id });
       await openWorkspace(manifest.id);
       toast(`Created MagicGrid workspace ${manifest.name}`);
     } catch (error) {
-      setStatus(String(error));
+      const message = getErrorMessage(error);
+      setStatus(message);
+      toast(`Failed to create MagicGrid workspace: ${message}`, 'error', 4000);
     }
   }
 
-  function toast(message: string) {
-    setToasts((items) => [...items, { id: crypto.randomUUID(), message }]);
+  async function createDefaultWorkspace() {
+    if (creatingDefaultRef.current) return;
+    const now = new Date().toISOString();
+    const manifest: MagicGridManifestWithVersion = {
+      ...defaultMagicGridWorkspace.manifest,
+      id: `${defaultMagicGridWorkspace.manifest.id}-${crypto.randomUUID()}`,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    try {
+      creatingDefaultRef.current = true;
+      setStatus('Creating default MagicGrid workspace…');
+      await postJson('/api/magicgrid/workspaces', {
+        id: manifest.id,
+        name: manifest.name,
+        description: manifest.description,
+      });
+      await fetchWorkspaces({ bootstrapOnEmpty: false, activeWorkspaceId: manifest.id });
+      await openWorkspace(manifest.id);
+      toast(`Created MagicGrid workspace ${manifest.name}`);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setStatus(message);
+      toast(`Failed to create default MagicGrid workspace: ${message}`, 'error', 4000);
+    } finally {
+      creatingDefaultRef.current = false;
+    }
   }
 
-  function closeToast(id: string) {
-    setToasts((items) => items.filter((toast) => toast.id !== id));
+  async function handleDuplicateWorkspace() {
+    if (!workspace) return;
+    const { manifest } = workspace;
+    const duplicateId = `${manifest.id}-copy-${crypto.randomUUID()}`;
+    const duplicateName = `${manifest.name} Copy`;
+    try {
+      setLoadState('loading');
+      setStatus('Duplicating MagicGrid workspace…');
+      const response = await postJson<{ status: string; manifest: MagicGridManifestWithVersion }>(
+        `/api/magicgrid/workspaces/${manifest.id}/duplicate`,
+        { id: duplicateId, name: duplicateName, version: manifest.version },
+      );
+      const duplicatedManifest = response?.manifest ?? {
+        ...manifest,
+        id: duplicateId,
+        name: duplicateName,
+      };
+      await fetchWorkspaces({ bootstrapOnEmpty: false, activeWorkspaceId: duplicatedManifest.id });
+      await openWorkspace(duplicatedManifest.id);
+      toast(`Duplicated MagicGrid workspace as ${duplicatedManifest.name}`);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setStatus(message);
+      if (isVersionConflict(error)) {
+        toast('MagicGrid workspace has been updated elsewhere. Refresh to duplicate the latest version.', 'error', 4200);
+      } else {
+        toast(`Failed to duplicate MagicGrid workspace: ${message}`, 'error', 4000);
+      }
+    } finally {
+      setLoadState('idle');
+    }
+  }
+
+  async function handleDeleteWorkspace() {
+    if (!workspace) return;
+    if (!window.confirm(`Delete MagicGrid workspace "${workspace.manifest.name}"? This cannot be undone.`)) {
+      return;
+    }
+    const { id, name } = workspace.manifest;
+    try {
+      setLoadState('loading');
+      setStatus('Deleting MagicGrid workspace…');
+      await deleteJson(`/api/magicgrid/workspaces/${id}`);
+      toast(`Deleted MagicGrid workspace ${name}`);
+      setWorkspace(null);
+      setActiveId('');
+      setSelection(null);
+      setHistory([]);
+      setRedo([]);
+      setDirty(false);
+      setAutosaveError(null);
+      await fetchWorkspaces({ bootstrapOnEmpty: true, activeWorkspaceId: '' });
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setStatus(message);
+      toast(`Failed to delete MagicGrid workspace: ${message}`, 'error', 4000);
+    } finally {
+      setLoadState('idle');
+    }
   }
 
   function pushHistory(nextWorkspace: MagicGridWorkspaceWithVersion, nextSelection?: string | null) {
@@ -304,9 +447,14 @@ export function MagicGridApp() {
       setAutosaveError(null);
       setStatus(response.status === 'saved' ? 'Saved' : 'Ready');
     } catch (error) {
-      const message = String(error);
+      const message = getErrorMessage(error);
       setAutosaveError(message);
       setStatus(message);
+      if (isVersionConflict(error)) {
+        toast('MagicGrid workspace has been updated elsewhere. Please reload to continue.', 'error', 4200);
+      } else if (!isAutosave) {
+        toast(`Save failed: ${message}`, 'error', 4000);
+      }
     } finally {
       setSaving(false);
     }
@@ -378,6 +526,8 @@ export function MagicGridApp() {
         activeId={activeId}
         onOpen={openWorkspace}
         onCreate={handleCreateWorkspace}
+        onDuplicate={handleDuplicateWorkspace}
+        onDelete={handleDeleteWorkspace}
         onSave={() => handleSave(false)}
         onToggleAutosave={() => setAutosaveEnabled((value) => !value)}
         onUndo={handleUndo}
@@ -389,7 +539,11 @@ export function MagicGridApp() {
             title="Workspace"
             subtitle="Open a saved MagicGrid workspace"
             actions={
-              <button className="button button--ghost" onClick={fetchWorkspaces} type="button">
+              <button
+                className="button button--ghost"
+                onClick={() => fetchWorkspaces({ bootstrapOnEmpty: true })}
+                type="button"
+              >
                 Refresh list
               </button>
             }
@@ -427,7 +581,10 @@ export function MagicGridApp() {
             elements={workspace?.elements ?? defaultGridElements}
             constraints={workspace?.constraints ?? defaultConstraints}
             selectedId={selection}
+            dragState={dragState}
             onSelect={handleSelectElement}
+            onDragStateChange={setDragState}
+            onCommitPosition={handleCommitPosition}
           />
         </div>
         <div className="magicgrid__column magicgrid__column--properties">

@@ -13,6 +13,8 @@ interface MagicGridToolbarProps {
   canRedo: boolean;
   onOpen: (id: string) => void;
   onCreate: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
   onSave: () => void;
   onToggleAutosave: () => void;
   onUndo: () => void;
@@ -32,6 +34,8 @@ export function MagicGridToolbar({
   canRedo,
   onOpen,
   onCreate,
+  onDuplicate,
+  onDelete,
   onSave,
   onToggleAutosave,
   onUndo,
@@ -65,9 +69,22 @@ export function MagicGridToolbar({
             </option>
           ))}
         </select>
-        <button className="button" type="button" onClick={onCreate}>
-          New workspace
-        </button>
+        <div className="magicgrid-toolbar__group">
+          <button className="button" type="button" onClick={onCreate}>
+            New workspace
+          </button>
+          <button className="button" type="button" onClick={onDuplicate} disabled={!activeId}>
+            Duplicate
+          </button>
+          <button
+            className="button button--danger"
+            type="button"
+            onClick={onDelete}
+            disabled={!activeId}
+          >
+            Delete
+          </button>
+        </div>
         <button className="button" type="button" onClick={onSave} disabled={!dirty || saving}>
           {saving ? 'Saving…' : 'Save'}
         </button>

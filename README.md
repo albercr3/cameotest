@@ -49,6 +49,10 @@ Each workspace is a folder containing three JSON files:
 
 The server exposes REST endpoints under `/api/workspaces` to list, open, load, save, import, and duplicate workspaces.
 
+## MagicGrid
+
+For the grid-oriented MagicGrid editor, see [docs/magicgrid.md](./docs/magicgrid.md) for the default workflow, seeded elements, and starter constraints. Use the same server and client commands from the [Getting started](#getting-started) section (`pnpm --filter @cameotest/server dev` and `pnpm --filter @cameotest/client dev`) to interact with MagicGrid locally.
+
 ## Item flow labels on IBD connectors
 
 - Connectors on internal block diagrams support an optional **itemFlowLabel** field to annotate the payload flowing along the
