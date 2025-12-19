@@ -1,20 +1,31 @@
 import { useMemo } from 'react';
-import type { GridElement, LayoutMetadata } from '@cameotest/magicgrid';
+import type { GridElement, LayoutMetadata, MagicGridConstraint } from '@cameotest/magicgrid';
 import { Panel } from '../Panel';
+import { MagicGridConstraints, type MagicGridConstraintDraft } from './MagicGridConstraints';
 
 interface MagicGridPropertiesProps {
   element: GridElement | null;
+  elements: GridElement[];
+  constraints: MagicGridConstraint[];
   layout: LayoutMetadata;
   onChange: (id: string, updates: Partial<GridElement>) => void;
   onDelete: (id: string) => void;
+  onAddConstraint: (constraint: MagicGridConstraintDraft) => void;
+  onUpdateConstraint: (id: string, updates: Partial<MagicGridConstraint>) => void;
+  onDeleteConstraint: (id: string) => void;
   onLayoutChange: (updates: Partial<LayoutMetadata>) => void;
 }
 
 export function MagicGridProperties({
   element,
+  elements,
+  constraints,
   layout,
   onChange,
   onDelete,
+  onAddConstraint,
+  onUpdateConstraint,
+  onDeleteConstraint,
   onLayoutChange,
 }: MagicGridPropertiesProps) {
   const availableLayers = useMemo(() => ['background', 'content', 'overlay'], []);
@@ -156,6 +167,16 @@ export function MagicGridProperties({
         ) : (
           <p className="magicgrid-properties__empty">Select an element on the grid to edit its properties.</p>
         )}
+      </Panel>
+      <Panel title="Constraints" subtitle="Define relationships between elements">
+        <MagicGridConstraints
+          constraints={constraints}
+          elements={elements}
+          selectedElementId={element?.id ?? null}
+          onAddConstraint={onAddConstraint}
+          onUpdateConstraint={onUpdateConstraint}
+          onDeleteConstraint={onDeleteConstraint}
+        />
       </Panel>
     </div>
   );
