@@ -24,7 +24,7 @@ function createDraft(kind: MagicGridConstraint['kind'], appliesTo: string[]): Co
     track: 0,
     gap: 0,
     anchor: 'padding',
-    offset: DEFAULT_OFFSET,
+    offset: { ...DEFAULT_OFFSET },
     appliesTo,
   };
 }
@@ -83,6 +83,7 @@ export function MagicGridConstraints({
   }
 
   function handleSubmitDraft() {
+    if (!draft.appliesTo.length) return;
     onAddConstraint(draft);
     setDraft(createDraft(draft.kind, defaultAppliesTo));
   }
