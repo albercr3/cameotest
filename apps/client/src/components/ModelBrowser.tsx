@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { Diagram, Element } from '@cameotest/shared';
 import { DraggedElementPayload, ELEMENT_DRAG_MIME } from '../dragTypes';
@@ -72,22 +72,70 @@ export function ModelBrowser({
 }: ModelBrowserProps) {
   const normalizedSearch = search.trim().toLowerCase();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const initializedRef = useRef(false);
+  const rootSignatureRef = useRef('');
+
+  const findAncestors = useCallback((nodes: ModelBrowserNode[], targetId: string): string[] | null => {
+    for (const node of nodes) {
+      const nodeId = node.kind === 'element' ? node.element.id : node.diagram.id;
+      if (nodeId === targetId) return [nodeId];
+      const childPath = findAncestors(node.children, targetId);
+      if (childPath) return [nodeId, ...childPath];
+    }
+    return null;
+  }, []);
 
   useEffect(() => {
-    const collectIds = (nodes: ModelBrowserNode[], acc: Set<string>) => {
+    const visibleIds = new Set<string>();
+    const rootIds = new Set<string>();
+    const collectIds = (nodes: ModelBrowserNode[], isRoot: boolean) => {
       nodes.forEach((node) => {
         const nodeId = node.kind === 'element' ? node.element.id : node.diagram.id;
-        acc.add(nodeId);
-        collectIds(node.children, acc);
+        visibleIds.add(nodeId);
+        if (isRoot) {
+          rootIds.add(nodeId);
+        }
+        collectIds(node.children, false);
       });
     };
 
-    const next = new Set(expandedIds);
-    collectIds(tree, next);
-    if (next.size !== expandedIds.size) {
-      setExpandedIds(next);
+    collectIds(tree, true);
+
+    const nextRootSignature = [...rootIds].sort().join('|');
+    if (rootSignatureRef.current !== nextRootSignature) {
+      initializedRef.current = false;
     }
-  }, [expandedIds, tree]);
+    rootSignatureRef.current = nextRootSignature;
+
+    if (visibleIds.size === 0) {
+      initializedRef.current = false;
+      setExpandedIds(new Set());
+      return;
+    }
+
+    const ancestorsForSelection =
+      (selectedId && findAncestors(tree, selectedId)) ||
+      (selectedDiagramId && findAncestors(tree, selectedDiagramId)) ||
+      null;
+
+    setExpandedIds((current) => {
+      const next = new Set<string>();
+      current.forEach((id) => {
+        if (visibleIds.has(id)) {
+          next.add(id);
+        }
+      });
+
+      if (!initializedRef.current) {
+        rootIds.forEach((id) => next.add(id));
+        initializedRef.current = true;
+      }
+
+      ancestorsForSelection?.forEach((id) => next.add(id));
+
+      return next;
+    });
+  }, [findAncestors, selectedDiagramId, selectedId, tree]);
 
   const filtered = useMemo(() => {
     const filterNodes = (nodes: ModelBrowserNode[]): ModelBrowserNode[] => {
