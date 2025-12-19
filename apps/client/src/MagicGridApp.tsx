@@ -19,6 +19,8 @@ import { MagicGridCanvas } from './components/magicgrid/MagicGridCanvas';
 import { MagicGridPalette } from './components/magicgrid/MagicGridPalette';
 import { MagicGridProperties } from './components/magicgrid/MagicGridProperties';
 import { MagicGridToolbar } from './components/magicgrid/MagicGridToolbar';
+import type { DragState, GridDraft } from './components/magicgrid/interaction';
+import { normalizeDraft } from './components/magicgrid/interaction';
 
 export type MagicGridManifestWithVersion = MagicGridManifest & { version: number };
 export type MagicGridWorkspaceWithVersion = MagicGridWorkspace & {
@@ -70,6 +72,7 @@ export function MagicGridApp() {
   const [autosaveError, setAutosaveError] = useState<string | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('idle');
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [dragState, setDragState] = useState<DragState | null>(null);
   const autosaveTimer = useRef<number | null>(null);
 
   const selectedElement = useMemo(
@@ -91,6 +94,10 @@ export function MagicGridApp() {
       void handleSave(true);
     }, AUTOSAVE_DELAY);
   }, [dirty, autosaveEnabled, saving, loadState, workspace]);
+
+  useEffect(() => {
+    setDragState(null);
+  }, [workspace?.manifest.id]);
 
   const canUndo = history.length > 1;
   const canRedo = redo.length > 0;
@@ -218,6 +225,14 @@ export function MagicGridApp() {
           : element,
       ),
     }));
+  }
+
+  function handleCommitPosition(id: string, draft: GridDraft) {
+    if (!workspace) return;
+    const normalized = normalizeDraft(draft, workspace.layout);
+    handleUpdateElement(id, normalized);
+    setSelection(id);
+    setDragState(null);
   }
 
   function handleDeleteElement(id: string) {
@@ -387,7 +402,10 @@ export function MagicGridApp() {
             elements={workspace?.elements ?? defaultGridElements}
             constraints={workspace?.constraints ?? defaultConstraints}
             selectedId={selection}
+            dragState={dragState}
             onSelect={handleSelectElement}
+            onDragStateChange={setDragState}
+            onCommitPosition={handleCommitPosition}
           />
         </div>
         <div className="magicgrid__column magicgrid__column--properties">
