@@ -4,6 +4,8 @@ import { DraggedElementPayload, ELEMENT_DRAG_MIME } from '../dragTypes';
 import { accentForMetaclass } from '../styles/accents';
 
 type Selection = { kind: 'element' | 'relationship'; id: string };
+type Point = { x: number; y: number };
+type Side = 'N' | 'E' | 'S' | 'W';
 
 interface DiagramCanvasProps {
   diagram: Diagram;
@@ -34,6 +36,89 @@ const VIEWBOX_WIDTH = 1200;
 const VIEWBOX_HEIGHT = 800;
 const CONNECTOR_STUB = 24;
 const IBD_FRAME = { x: 240, y: 140, w: 640, h: 420 } as const;
+const DEFAULT_VIEW = {
+  gridEnabled: true,
+  snapEnabled: true,
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  orthogonalRouting: true,
+};
+const MIN_NODE_WIDTH = 140;
+const MIN_NODE_HEIGHT = 72;
+const FIT_PADDING_X = 32;
+const FIT_PADDING_Y = 32;
+const TITLE_LINE_HEIGHT = 22;
+const META_LINE_HEIGHT = 16;
+
+const centerOfNode = (node: Diagram['nodes'][number]): Point => ({
+  x: node.x + node.w / 2,
+  y: node.y + node.h / 2,
+});
+
+const rectForNode = (node: Diagram['nodes'][number]) => ({ x: node.x, y: node.y, w: node.w, h: node.h });
+
+const anchorForRect = (rect: { x: number; y: number; w: number; h: number }, side: Side): Point => {
+  switch (side) {
+    case 'N':
+      return { x: rect.x + rect.w / 2, y: rect.y };
+    case 'S':
+      return { x: rect.x + rect.w / 2, y: rect.y + rect.h };
+    case 'E':
+      return { x: rect.x + rect.w, y: rect.y + rect.h / 2 };
+    case 'W':
+    default:
+      return { x: rect.x, y: rect.y + rect.h / 2 };
+  }
+};
+
+const stubbedPoint = (point: Point, side: Side, stub = CONNECTOR_STUB): Point => {
+  switch (side) {
+    case 'N':
+      return { x: point.x, y: point.y - stub };
+    case 'S':
+      return { x: point.x, y: point.y + stub };
+    case 'E':
+      return { x: point.x + stub, y: point.y };
+    case 'W':
+    default:
+      return { x: point.x - stub, y: point.y };
+  }
+};
+
+const orthogonalStubPath = (start: Point, end: Point, sourceSide: Side, targetSide: Side) => {
+  const sourceStub = stubbedPoint(start, sourceSide);
+  const targetStub = stubbedPoint(end, targetSide);
+
+  if (sourceStub.x === targetStub.x || sourceStub.y === targetStub.y) {
+    return [start, sourceStub, targetStub, end];
+  }
+
+  const optionA = [start, sourceStub, { x: sourceStub.x, y: targetStub.y }, targetStub, end];
+  const optionB = [start, sourceStub, { x: targetStub.x, y: sourceStub.y }, targetStub, end];
+  const lengthFor = (points: Point[]) =>
+    points.reduce((total, point, index) => {
+      if (index === 0) return 0;
+      const prev = points[index - 1];
+      return total + Math.abs(point.x - prev.x) + Math.abs(point.y - prev.y);
+    }, 0);
+
+  return lengthFor(optionA) <= lengthFor(optionB) ? optionA : optionB;
+};
+
+const chooseSidesForRects = (
+  source: { x: number; y: number; w: number; h: number },
+  target: { x: number; y: number; w: number; h: number },
+): { sourceSide: Side; targetSide: Side } => {
+  const sourceCenter = { x: source.x + source.w / 2, y: source.y + source.h / 2 };
+  const targetCenter = { x: target.x + target.w / 2, y: target.y + target.h / 2 };
+  const dx = targetCenter.x - sourceCenter.x;
+  const dy = targetCenter.y - sourceCenter.y;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return { sourceSide: dx >= 0 ? 'E' : 'W', targetSide: dx >= 0 ? 'W' : 'E' };
+  }
+  return { sourceSide: dy >= 0 ? 'S' : 'N', targetSide: dy >= 0 ? 'N' : 'S' };
+};
 
 export function DiagramCanvas({
   diagram,
@@ -79,9 +164,33 @@ export function DiagramCanvas({
   >(null);
   const portDragMoved = useRef(false);
   const cancelPortDragRef = useRef<(pointerId?: number) => void>(() => {});
+  const resizeStart = useRef<
+    | {
+        nodeId: string;
+        start: { diagramX: number; diagramY: number };
+        baseSize: { w: number; h: number };
+      }
+    | null
+  >(null);
+  const resizeHistoryKey = useRef<string | null>(null);
+  const resizeMoved = useRef(false);
+  const routingDragRef = useRef<
+    | {
+        edgeId: string;
+        segmentIndex: number;
+        orientation: 'horizontal' | 'vertical';
+        basePoints: Point[];
+        start: { diagramX: number; diagramY: number };
+        historyKey: string;
+      }
+    | null
+  >(null);
+  const routingDragMoved = useRef(false);
   const pointerCapture = useRef<{ id: number; target: globalThis.Element | null } | null>(null);
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [draggingPortId, setDraggingPortId] = useState<string | null>(null);
+  const [activeResizeId, setActiveResizeId] = useState<string | null>(null);
+  const [routingDragEdgeId, setRoutingDragEdgeId] = useState<string | null>(null);
   const [isDropActive, setIsDropActive] = useState(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const spacePanActive = useRef(false);
@@ -143,16 +252,32 @@ export function DiagramCanvas({
     return ids;
   }, [diagram.id, issues, relationshipEdgeIds]);
 
+  const measureText = useMemo(() => {
+    if (typeof document === 'undefined') {
+      return (text: string, variant: 'title' | 'meta') => text.length * (variant === 'title' ? 10 : 8);
+    }
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    return (text: string, variant: 'title' | 'meta') => {
+      if (!context) return text.length * (variant === 'title' ? 10 : 8);
+      context.font =
+        variant === 'title'
+          ? '800 14px "Inter", system-ui, -apple-system, sans-serif'
+          : '11px "Inter", system-ui, -apple-system, sans-serif';
+      return context.measureText(text).width;
+    };
+  }, []);
+
   const isIbd = (diagram.kind ?? diagram.type) === 'IBD';
 
-  const view = diagram.viewSettings;
+  const view = { ...DEFAULT_VIEW, ...diagram.viewSettings };
   const canvasMenuDisabled = !onCanvasContextMenu;
   const diagramRef = useRef(diagram);
   const viewRef = useRef(view);
 
   useEffect(() => {
     diagramRef.current = diagram;
-    viewRef.current = diagram.viewSettings;
+    viewRef.current = { ...DEFAULT_VIEW, ...diagram.viewSettings };
   }, [diagram]);
 
   const releasePointerCapture = useCallback((pointerId?: number) => {
@@ -326,6 +451,23 @@ export function DiagramCanvas({
     return { side: closest.side, offset: Math.min(1, Math.max(0, offset)) };
   };
 
+  const desiredSizeForNode = (node: Diagram['nodes'][number]) => {
+    const element = elements[node.elementId];
+    const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
+    if (nodeKind === 'Port') return { w: node.w, h: node.h };
+    const isPart = nodeKind === 'Part';
+    const typeName = isPart
+      ? element?.typeId
+        ? elements[element.typeId]?.name ?? 'Unknown type'
+        : 'Unspecified type'
+      : element?.metaclass ?? 'Element';
+    const title = isPart ? `${element?.name ?? 'Missing part'}: ${typeName}` : element?.name ?? 'Missing element';
+    const meta = isPart ? typeName : element?.metaclass ?? 'Element';
+    const width = Math.max(MIN_NODE_WIDTH, Math.ceil(Math.max(measureText(title, 'title'), measureText(meta, 'meta')) + FIT_PADDING_X));
+    const height = Math.max(MIN_NODE_HEIGHT, Math.ceil(TITLE_LINE_HEIGHT + META_LINE_HEIGHT + FIT_PADDING_Y));
+    return { w: width, h: height };
+  };
+
   const updateNodePositions = (
     nodes: { id: string; x: number; y: number }[],
     dx: number,
@@ -351,6 +493,91 @@ export function DiagramCanvas({
       return { ...node, x: nextX, y: nextY };
     });
     onChange({ ...diagram, nodes: nextNodes }, options);
+  };
+
+  const fitNodesToText = (nodeIds: string[]) => {
+    if (nodeIds.length === 0) return;
+    const currentDiagram = diagramRef.current ?? diagram;
+    const targets = new Set(nodeIds);
+    const snap = viewRef.current.snapEnabled ? GRID_SIZE : 1;
+    const nextNodes = currentDiagram.nodes.map((node) => {
+      const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
+      if (nodeKind === 'Port') return node;
+      if (!targets.has(node.id)) return node;
+      const size = desiredSizeForNode(node);
+      const snappedW = Math.max(MIN_NODE_WIDTH, Math.round(size.w / snap) * snap);
+      const snappedH = Math.max(MIN_NODE_HEIGHT, Math.round(size.h / snap) * snap);
+      let width = snappedW;
+      let height = snappedH;
+      if (isIbd && nodeKind === 'Part') {
+        width = Math.min(snappedW, IBD_FRAME.x + IBD_FRAME.w - node.x);
+        height = Math.min(snappedH, IBD_FRAME.y + IBD_FRAME.h - node.y);
+      }
+      return { ...node, w: width, h: height };
+    });
+    onChange({ ...currentDiagram, nodes: nextNodes }, { historyKey: 'fit-to-text' });
+  };
+
+  const startResize = (event: React.PointerEvent, nodeId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.button !== 0) return;
+    const node = nodesById.get(nodeId);
+    if (!node) return;
+    const startPoint = toDiagramPoint(event);
+    resizeStart.current = {
+      nodeId,
+      start: { diagramX: startPoint.x, diagramY: startPoint.y },
+      baseSize: { w: node.w, h: node.h },
+    };
+    resizeHistoryKey.current = crypto.randomUUID();
+    resizeMoved.current = false;
+    setActiveResizeId(nodeId);
+    const target = event.currentTarget as globalThis.Element | null;
+    target?.setPointerCapture(event.pointerId);
+    pointerCapture.current = { id: event.pointerId, target };
+    window.addEventListener('pointermove', handleResizeMove);
+    window.addEventListener('pointerup', handleResizeUp);
+  };
+
+  const handleResizeMove = (event: PointerEvent) => {
+    if (!resizeStart.current) return;
+    const node = nodesById.get(resizeStart.current.nodeId);
+    if (!node) return;
+    const { dx, dy } = pointerDeltaToDiagram(event, resizeStart.current.start);
+    const snap = viewRef.current.snapEnabled ? GRID_SIZE : 1;
+    const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
+    const width = Math.max(MIN_NODE_WIDTH, Math.round((resizeStart.current.baseSize.w + dx) / snap) * snap);
+    const height = Math.max(MIN_NODE_HEIGHT, Math.round((resizeStart.current.baseSize.h + dy) / snap) * snap);
+    let clampedWidth = width;
+    let clampedHeight = height;
+    if (isIbd && nodeKind === 'Part') {
+      clampedWidth = Math.min(width, IBD_FRAME.x + IBD_FRAME.w - node.x);
+      clampedHeight = Math.min(height, IBD_FRAME.y + IBD_FRAME.h - node.y);
+    }
+    const currentDiagram = diagramRef.current ?? diagram;
+    const nextNodes = currentDiagram.nodes.map((candidate) =>
+      candidate.id === node.id ? { ...candidate, w: clampedWidth, h: clampedHeight } : candidate,
+    );
+    resizeMoved.current =
+      resizeMoved.current ||
+      clampedWidth !== resizeStart.current.baseSize.w ||
+      clampedHeight !== resizeStart.current.baseSize.h;
+    onChange({ ...currentDiagram, nodes: nextNodes }, { transient: true, historyKey: resizeHistoryKey.current ?? undefined });
+  };
+
+  const handleResizeUp = (event: PointerEvent) => {
+    if (resizeMoved.current && resizeHistoryKey.current) {
+      const latestDiagram = diagramRef.current ?? diagram;
+      onChange(latestDiagram, { historyKey: resizeHistoryKey.current });
+    }
+    resizeStart.current = null;
+    resizeHistoryKey.current = null;
+    resizeMoved.current = false;
+    setActiveResizeId(null);
+    releasePointerCapture(event.pointerId);
+    window.removeEventListener('pointermove', handleResizeMove);
+    window.removeEventListener('pointerup', handleResizeUp);
   };
 
   const startPan = (event: React.PointerEvent | PointerEvent) => {
@@ -558,6 +785,10 @@ export function DiagramCanvas({
     onChange({ ...diagram, viewSettings: { ...view, [key]: !view[key] } });
   };
 
+  const toggleOrthogonalRouting = () => {
+    onChange({ ...diagram, viewSettings: { ...view, orthogonalRouting: !view.orthogonalRouting } });
+  };
+
   const zoomBy = useCallback(
     (factor: number) => {
       const nextZoom = Math.min(3, Math.max(0.25, view.zoom * factor));
@@ -632,6 +863,73 @@ export function DiagramCanvas({
     onCanvasContextMenu({ clientX, clientY, position: { x, y } });
   };
 
+  const startRoutingSegmentDrag = (
+    event: React.PointerEvent,
+    edge: Diagram['edges'][number],
+    segmentIndex: number,
+    points: Point[],
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (points.length < 2) return;
+    const segmentStart = points[segmentIndex];
+    const segmentEnd = points[segmentIndex + 1];
+    if (!segmentStart || !segmentEnd) return;
+    const orientation =
+      Math.abs(segmentStart.x - segmentEnd.x) >= Math.abs(segmentStart.y - segmentEnd.y)
+        ? 'horizontal'
+        : 'vertical';
+    const startPoint = toDiagramPoint(event);
+    const historyKey = crypto.randomUUID();
+    routingDragRef.current = {
+      edgeId: edge.id,
+      segmentIndex,
+      orientation,
+      basePoints: points,
+      start: { diagramX: startPoint.x, diagramY: startPoint.y },
+      historyKey,
+    };
+    routingDragMoved.current = false;
+    setRoutingDragEdgeId(edge.id);
+    window.addEventListener('pointermove', handleRoutingDragMove);
+    window.addEventListener('pointerup', handleRoutingDragUp);
+  };
+
+  const handleRoutingDragMove = (event: PointerEvent) => {
+    if (!routingDragRef.current) return;
+    const { edgeId, segmentIndex, orientation, basePoints, start, historyKey } = routingDragRef.current;
+    const { dx, dy } = pointerDeltaToDiagram(event, start);
+    const snap = viewRef.current.snapEnabled ? GRID_SIZE : 1;
+    const delta = orientation === 'horizontal' ? dy : dx;
+    const snapped = Math.round(delta / snap) * snap;
+    const nextPoints = basePoints.map((point, index) => {
+      if (index === segmentIndex || index === segmentIndex + 1) {
+        return orientation === 'horizontal' ? { ...point, y: point.y + snapped } : { ...point, x: point.x + snapped };
+      }
+      return point;
+    });
+    routingDragMoved.current = routingDragMoved.current || snapped !== 0;
+    const currentDiagram = diagramRef.current ?? diagram;
+    const nextEdges = currentDiagram.edges.map((candidate) =>
+      candidate.id === edgeId ? { ...candidate, routingPoints: nextPoints.slice(1, -1) } : candidate,
+    );
+    onChange({ ...currentDiagram, edges: nextEdges }, { transient: true, historyKey });
+  };
+
+  const handleRoutingDragUp = (event: PointerEvent) => {
+    if (routingDragRef.current && routingDragMoved.current) {
+      const { historyKey } = routingDragRef.current;
+      const latestDiagram = diagramRef.current ?? diagram;
+      onChange(latestDiagram, { historyKey });
+    }
+    routingDragRef.current = null;
+    routingDragMoved.current = false;
+    setRoutingDragEdgeId(null);
+    releasePointerCapture(event.pointerId);
+    window.removeEventListener('pointermove', handleRoutingDragMove);
+    window.removeEventListener('pointerup', handleRoutingDragUp);
+  };
+
   useEffect(() => {
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
@@ -642,16 +940,59 @@ export function DiagramCanvas({
       window.removeEventListener('pointerup', handleMarqueePointerUp);
       window.removeEventListener('pointermove', handlePortPointerMove);
       window.removeEventListener('pointerup', handlePortPointerUp);
+      window.removeEventListener('pointermove', handleResizeMove);
+      window.removeEventListener('pointerup', handleResizeUp);
+      window.removeEventListener('pointermove', handleRoutingDragMove);
+      window.removeEventListener('pointerup', handleRoutingDragUp);
     };
   }, []);
 
-  const pointsForEdge = (sourceId: string, targetId: string, routing: { x: number; y: number }[]) => {
-    const source = nodesById.get(sourceId);
-    const target = nodesById.get(targetId);
-    if (!source || !target) return '';
-    const sourcePoint = { x: source.x + source.w / 2, y: source.y + source.h / 2 };
-    const targetPoint = { x: target.x + target.w / 2, y: target.y + target.h / 2 };
-    return [sourcePoint, ...routing, targetPoint].map((pt) => `${pt.x},${pt.y}`).join(' ');
+  const edgePoints = (edge: Diagram['edges'][number]): Point[] | null => {
+    const source = nodesById.get(edge.sourceNodeId);
+    const target = nodesById.get(edge.targetNodeId);
+    if (!source || !target) return null;
+    const useOrthogonal = view.orthogonalRouting !== false;
+    const sourceRect = rectForNode(source);
+    const targetRect = rectForNode(target);
+    const { sourceSide, targetSide } = chooseSidesForRects(sourceRect, targetRect);
+    const start = useOrthogonal ? anchorForRect(sourceRect, sourceSide) : centerOfNode(source);
+    const end = useOrthogonal ? anchorForRect(targetRect, targetSide) : centerOfNode(target);
+    if (edge.routingPoints?.length) {
+      const routing = edge.routingPoints.map(({ x, y }) => ({ x, y }));
+      return [start, ...routing, end];
+    }
+    if (useOrthogonal) {
+      return orthogonalStubPath(start, end, sourceSide, targetSide);
+    }
+    return [start, end];
+  };
+
+  const polylineForEdge = (edge: Diagram['edges'][number]) => {
+    const points = edgePoints(edge);
+    if (!points) return null;
+    return { points, pointString: points.map((pt) => `${pt.x},${pt.y}`).join(' ') };
+  };
+
+  const segmentHandles = (edge: Diagram['edges'][number], points: Point[]) => {
+    if (!view.orthogonalRouting) return null;
+    const handles: React.ReactNode[] = [];
+    for (let i = 1; i < points.length - 2; i += 1) {
+      const start = points[i];
+      const end = points[i + 1];
+      if (!start || !end) continue;
+      const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+      handles.push(
+        <circle
+          key={`${edge.id}-handle-${i}`}
+          className={`diagram-edge__handle${routingDragEdgeId === edge.id ? ' diagram-edge__handle--dragging' : ''}`}
+          cx={mid.x}
+          cy={mid.y}
+          r={6}
+          onPointerDown={(event) => startRoutingSegmentDrag(event, edge, i, points)}
+        />,
+      );
+    }
+    return handles;
   };
 
   const zoomToFit = () => {
@@ -746,15 +1087,12 @@ export function DiagramCanvas({
       }
       return { side: closest.side, offset: Math.min(1, Math.max(0, offset)) };
     };
-  const portPositions = new Map<
-    string,
-    { x: number; y: number; ownerKind: 'block' | 'part'; side: 'N' | 'E' | 'S' | 'W' }
-  >();
-  diagram.nodes.forEach((node) => {
-    const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
-    if (nodeKind !== 'Port') return;
-    const element = elements[node.elementId];
-    const placement = node.placement ?? { side: 'N', offset: 0.5 };
+    const portPositions = new Map<string, { x: number; y: number; ownerKind: 'block' | 'part'; side: Side }>();
+    diagram.nodes.forEach((node) => {
+      const nodeKind = node.kind ?? (node.placement ? 'Port' : 'Element');
+      if (nodeKind !== 'Port') return;
+      const element = elements[node.elementId];
+      const placement = node.placement ?? { side: 'N', offset: 0.5 };
       const clampedOffset = Math.min(1, Math.max(0, placement.offset));
       const ownerInfo = ownerRectForPort(element);
       if (!ownerInfo) return;
@@ -812,56 +1150,29 @@ export function DiagramCanvas({
     };
 
     const orthogonalConnectorPoints = (
-      source: { x: number; y: number; side: 'N' | 'E' | 'S' | 'W' },
-      target: { x: number; y: number; side: 'N' | 'E' | 'S' | 'W' },
-    ) => {
-      const start = { x: source.x, y: source.y };
-      const end = { x: target.x, y: target.y };
-      const stubbedPoint = (point: typeof start, side: typeof source.side) => {
-        switch (side) {
-          case 'N':
-            return { x: point.x, y: point.y - CONNECTOR_STUB };
-          case 'S':
-            return { x: point.x, y: point.y + CONNECTOR_STUB };
-          case 'E':
-            return { x: point.x + CONNECTOR_STUB, y: point.y };
-          case 'W':
-          default:
-            return { x: point.x - CONNECTOR_STUB, y: point.y };
-        }
-      };
-
-      const sourceStub = stubbedPoint(start, source.side);
-      const targetStub = stubbedPoint(end, target.side);
-
-      if (sourceStub.x === targetStub.x || sourceStub.y === targetStub.y) {
-        return [start, sourceStub, targetStub, end];
-      }
-
-      const optionA = [start, sourceStub, { x: sourceStub.x, y: targetStub.y }, targetStub, end];
-      const optionB = [start, sourceStub, { x: targetStub.x, y: sourceStub.y }, targetStub, end];
-      const lengthFor = (points: { x: number; y: number }[]) =>
-        points.reduce((total, point, index) => {
-          if (index === 0) return 0;
-          const prev = points[index - 1];
-          return total + Math.abs(point.x - prev.x) + Math.abs(point.y - prev.y);
-        }, 0);
-
-      return lengthFor(optionA) <= lengthFor(optionB) ? optionA : optionB;
-    };
+      source: { x: number; y: number; side: Side },
+      target: { x: number; y: number; side: Side },
+    ) => orthogonalStubPath({ x: source.x, y: source.y }, { x: target.x, y: target.y }, source.side, target.side);
 
     const connectorGeometry = (edge: Diagram['edges'][number]) => {
       const source = portPositions.get(edge.sourceNodeId);
       const target = portPositions.get(edge.targetNodeId);
       if (!source || !target) return null;
       const routedPoints = edge.routingPoints?.map(({ x, y }) => ({ x, y })) ?? [];
+      const basePoints = [
+        { x: source.x, y: source.y },
+        ...routedPoints,
+        { x: target.x, y: target.y },
+      ];
       const points =
         routedPoints.length > 0
-          ? [{ x: source.x, y: source.y }, ...routedPoints, { x: target.x, y: target.y }]
-          : orthogonalConnectorPoints(source, target);
+          ? basePoints
+          : view.orthogonalRouting !== false
+            ? orthogonalConnectorPoints(source, target)
+            : basePoints;
       const pointString = points.map((point) => `${point.x},${point.y}`).join(' ');
       const midpoint = midpointOfPolyline(points);
-      return { pointString, midpoint } as const;
+      return { pointString, midpoint, points } as const;
     };
 
     const resetRouting = () => {
@@ -913,6 +1224,22 @@ export function DiagramCanvas({
               Fit
             </button>
           </div>
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={() => fitNodesToText(selectedNodeIds)}
+            disabled={selectedNodeIds.length === 0}
+            title={selectedNodeIds.length === 0 ? 'Select nodes to resize' : 'Resize nodes to fit labels'}
+          >
+            Fit to text
+          </button>
+          <button
+            type="button"
+            className={`chip-toggle chip-toggle--ghost${view.orthogonalRouting ? ' chip-toggle--active' : ''}`}
+            onClick={toggleOrthogonalRouting}
+          >
+            Orthogonal lines
+          </button>
           <button type="button" className="button button--ghost" onClick={openCanvasMenu} disabled={canvasMenuDisabled}>
             Canvas menu ▾
           </button>
@@ -984,6 +1311,7 @@ export function DiagramCanvas({
                         }
                       }}
                     />
+                    {segmentHandles(edge, geometry.points)}
                     {label && geometry.midpoint ? (
                       <g
                         className="diagram-edge__label"
@@ -1046,6 +1374,16 @@ export function DiagramCanvas({
                       <text x={12} y={42} className="diagram-node__meta">
                         {typeName}
                       </text>
+                      <rect
+                        x={node.w - 14}
+                        y={node.h - 14}
+                        width={12}
+                        height={12}
+                        rx={3}
+                        ry={3}
+                        className={`diagram-node__handle${activeResizeId === node.id ? ' diagram-node__handle--active' : ''}`}
+                        onPointerDown={(event) => startResize(event, node.id)}
+                      />
                     </g>
                   );
                 })}
@@ -1117,6 +1455,22 @@ export function DiagramCanvas({
             Fit
           </button>
         </div>
+        <button
+          type="button"
+          className="button button--ghost"
+          onClick={() => fitNodesToText(selectedNodeIds)}
+          disabled={selectedNodeIds.length === 0}
+          title={selectedNodeIds.length === 0 ? 'Select nodes to resize' : 'Resize nodes to fit labels'}
+        >
+          Fit to text
+        </button>
+        <button
+          type="button"
+          className={`chip-toggle chip-toggle--ghost${view.orthogonalRouting ? ' chip-toggle--active' : ''}`}
+          onClick={toggleOrthogonalRouting}
+        >
+          Orthogonal lines
+        </button>
         <button type="button" className="button button--ghost" onClick={openCanvasMenu} disabled={canvasMenuDisabled}>
           Canvas menu ▾
         </button>
@@ -1141,29 +1495,31 @@ export function DiagramCanvas({
         >
           <g transform={`translate(${view.panX} ${view.panY}) scale(${view.zoom})`}>
             {diagram.edges.map((edge) => {
-              const points = pointsForEdge(edge.sourceNodeId, edge.targetNodeId, edge.routingPoints);
+              const geometry = polylineForEdge(edge);
               const relationship = relationships[edge.relationshipId];
-              if (!points) return null;
+              if (!geometry) return null;
               const isSelected = selection?.kind === 'relationship' && selection.id === edge.relationshipId;
               const isDangling = !relationship;
               const hasIssue = issueEdgeIds.has(edge.id);
               return (
-                <polyline
-                  key={edge.id}
-                  className={`diagram-edge${isSelected ? ' diagram-edge--selected' : ''}${
-                    isDangling ? ' diagram-edge--dangling' : ''
-                  }${hasIssue ? ' diagram-edge--invalid' : ''}`}
-                  points={points}
-                  fill="none"
-                  strokeWidth={2}
-                  markerEnd="url(#arrow)"
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                    if (relationship && onSelectRelationship) {
-                      onSelectRelationship(relationship.id);
-                    }
-                  }}
-                />
+                <g key={edge.id}>
+                  <polyline
+                    className={`diagram-edge${isSelected ? ' diagram-edge--selected' : ''}${
+                      isDangling ? ' diagram-edge--dangling' : ''
+                    }${hasIssue ? ' diagram-edge--invalid' : ''}`}
+                    points={geometry.pointString}
+                    fill="none"
+                    strokeWidth={2}
+                    markerEnd="url(#arrow)"
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      if (relationship && onSelectRelationship) {
+                        onSelectRelationship(relationship.id);
+                      }
+                    }}
+                  />
+                  {segmentHandles(edge, geometry.points)}
+                </g>
               );
             })}
             {diagram.nodes.map((node) => {
@@ -1205,6 +1561,16 @@ export function DiagramCanvas({
                   <text x={12} y={42} className="diagram-node__meta">
                     {element?.metaclass ?? 'Not found'}
                   </text>
+                  <rect
+                    x={node.w - 14}
+                    y={node.h - 14}
+                    width={12}
+                    height={12}
+                    rx={3}
+                    ry={3}
+                    className={`diagram-node__handle${activeResizeId === node.id ? ' diagram-node__handle--active' : ''}`}
+                    onPointerDown={(event) => startResize(event, node.id)}
+                  />
                 </g>
               );
             })}

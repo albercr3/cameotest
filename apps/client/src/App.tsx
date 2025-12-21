@@ -124,7 +124,11 @@ const normalizeDiagram = (diagram: Diagram): Diagram => {
       node.kind ?? (kind === 'IBD' ? (node.placement ? 'Port' : 'Part') : 'Element');
     return { ...node, kind: inferredKind } as Diagram['nodes'][number];
   });
-  return { ...diagram, kind, type, nodes };
+  const viewSettings = {
+    ...diagram.viewSettings,
+    orthogonalRouting: diagram.viewSettings?.orthogonalRouting ?? true,
+  };
+  return { ...diagram, kind, type, nodes, viewSettings };
 };
 
 const isBddDiagram = (diagram?: Diagram) => diagramKindOf(diagram) === 'BDD';
@@ -179,6 +183,7 @@ export default function App() {
   const [pendingConnectorPortId, setPendingConnectorPortId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
+  const [validationBannerHidden, setValidationBannerHidden] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [diagramMenuOpen, setDiagramMenuOpen] = useState(false);
   const [codeDrawerOpen, setCodeDrawerOpen] = useState(false);
@@ -209,6 +214,7 @@ export default function App() {
   const sysmlImportInputRef = useRef<HTMLInputElement | null>(null);
   const diagramMenuRef = useRef<HTMLDivElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  const lastValidationIssueCount = useRef(0);
 
   const showToast = useCallback((message: string, kind: ToastItem['kind'] = 'info') => {
     const id = crypto.randomUUID();
@@ -703,6 +709,13 @@ export default function App() {
     }),
     [validationIssues],
   );
+
+  useEffect(() => {
+    if (validationIssues.length === 0 || validationIssues.length !== lastValidationIssueCount.current) {
+      setValidationBannerHidden(false);
+    }
+    lastValidationIssueCount.current = validationIssues.length;
+  }, [lastValidationIssueCount, validationIssues]);
 
   const activeDiagramIssues = useMemo(() => {
     if (!activeDiagram) return [] as ValidationIssue[];
@@ -1422,6 +1435,13 @@ export default function App() {
       manifest: { ...current.manifest, updatedAt: now },
       model: { ...current.model, elements: [...current.model.elements, element] },
     }));
+    if (
+      activeDiagram &&
+      isIbdDiagram(activeDiagram) &&
+      belongsToContextBlock(elementsById[ownerId], activeDiagram.contextBlockId)
+    ) {
+      addPortToIbdDiagram(activeDiagram, element.id, { select: true, portElement: element });
+    }
     selectElement(element.id);
     return element.id;
   };
@@ -1453,6 +1473,9 @@ export default function App() {
       manifest: { ...current.manifest, updatedAt: now },
       model: { ...current.model, elements: [...current.model.elements, element] },
     }));
+    if (activeDiagram && isIbdDiagram(activeDiagram) && activeDiagram.contextBlockId === ownerBlockId) {
+      addPartToIbdDiagram(activeDiagram, element.id, { select: true, partElement: element });
+    }
     selectElement(element.id);
     return element;
   };
@@ -1537,10 +1560,10 @@ export default function App() {
   const addPortToIbdDiagram = (
     diagram: Diagram,
     portId: string,
-    options?: { select?: boolean; position?: { x: number; y: number } },
+    options?: { select?: boolean; position?: { x: number; y: number }; portElement?: Element },
   ) => {
     if (!payload || !isIbdDiagram(diagram)) return;
-    const port = elementsById[portId];
+    const port = options?.portElement ?? elementsById[portId];
     if (!port || port.metaclass !== 'Port') return;
 
     const anchor = (() => {
@@ -1732,7 +1755,7 @@ export default function App() {
       ownerId,
       nodes: [],
       edges: [],
-      viewSettings: { gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 },
+      viewSettings: { gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0, orthogonalRouting: true },
     } as Diagram);
 
     applyChange((current) => ({
@@ -1965,7 +1988,7 @@ export default function App() {
       ownerId: block.id,
       nodes: [],
       edges: [],
-      viewSettings: { gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 },
+      viewSettings: { gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0, orthogonalRouting: true },
     } as Diagram);
 
     applyChange((current) => ({
@@ -2958,7 +2981,7 @@ export default function App() {
             </div>
           </div>
         ) : null}
-        {payload && validationIssues.length ? (
+        {payload && validationIssues.length && !validationBannerHidden ? (
           <div className="banner" role="status">
             <div>
               Validation detected {validationSummary.errors} error{validationSummary.errors === 1 ? '' : 's'}
@@ -2972,6 +2995,27 @@ export default function App() {
                 </li>
               ))}
             </ul>
+            <div className="banner__actions">
+              <button className="button button--ghost" type="button" onClick={() => setValidationBannerHidden(true)}>
+                Hide warnings
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {payload && validationIssues.length > 0 && validationBannerHidden ? (
+          <div className="banner banner--info banner--compact" role="status">
+            <div>
+              Validation warnings hidden. {validationSummary.errors} error{validationSummary.errors === 1 ? '' : 's'}
+              {validationSummary.warnings
+                ? `, ${validationSummary.warnings} warning${validationSummary.warnings === 1 ? '' : 's'}`
+                : ''}
+              .
+            </div>
+            <div className="banner__actions">
+              <button className="button button--ghost" type="button" onClick={() => setValidationBannerHidden(false)}>
+                Show warnings
+              </button>
+            </div>
           </div>
         ) : null}
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
