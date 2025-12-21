@@ -138,8 +138,9 @@ export const diagramSchema = z
         zoom: z.number().default(1),
         panX: z.number().default(0),
         panY: z.number().default(0),
+        orthogonalRouting: z.boolean().default(true),
       })
-      .default({ gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0 }),
+      .default({ gridEnabled: true, snapEnabled: true, zoom: 1, panX: 0, panY: 0, orthogonalRouting: true }),
   })
   .passthrough();
 export type Diagram = z.infer<typeof diagramSchema>;
