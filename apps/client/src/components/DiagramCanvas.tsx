@@ -964,11 +964,25 @@ export function DiagramCanvas({
     const useOrthogonal = view.orthogonalRouting !== false;
     const sourceRect = rectForNode(source);
     const targetRect = rectForNode(target);
-    const { sourceSide, targetSide } = chooseSidesForRects(sourceRect, targetRect);
+    const routing = edge.routingPoints?.map(({ x, y }) => ({ x, y })) ?? [];
+    const nearestSideToPoint = (rect: { x: number; y: number; w: number; h: number }, point: Point): Side => {
+      const distances = [
+        { side: 'N' as const, value: Math.abs(point.y - rect.y) },
+        { side: 'S' as const, value: Math.abs(point.y - (rect.y + rect.h)) },
+        { side: 'W' as const, value: Math.abs(point.x - rect.x) },
+        { side: 'E' as const, value: Math.abs(point.x - (rect.x + rect.w)) },
+      ];
+      return distances.reduce((best, candidate) => (candidate.value < best.value ? candidate : best)).side;
+    };
+    const { sourceSide, targetSide } = routing.length
+      ? {
+          sourceSide: nearestSideToPoint(sourceRect, routing[0]),
+          targetSide: nearestSideToPoint(targetRect, routing[routing.length - 1]),
+        }
+      : chooseSidesForRects(sourceRect, targetRect);
     const start = useOrthogonal ? anchorForRect(sourceRect, sourceSide) : centerOfNode(source);
     const end = useOrthogonal ? anchorForRect(targetRect, targetSide) : centerOfNode(target);
-    if (edge.routingPoints?.length) {
-      const routing = edge.routingPoints.map(({ x, y }) => ({ x, y }));
+    if (routing.length) {
       return [start, ...routing, end];
     }
     if (useOrthogonal) {
