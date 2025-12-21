@@ -801,9 +801,9 @@ export default function App() {
   }, [activeDiagram, elementsById]);
 
   const layoutColumns = useMemo(() => {
-    if (showContainment && showPropertiesPanel) return '1fr 3fr 1fr';
-    if (showContainment && !showPropertiesPanel) return '1fr 4fr';
-    if (!showContainment && showPropertiesPanel) return '4fr 1fr';
+    if (showContainment && showPropertiesPanel) return '0.9fr 3.6fr 0.9fr';
+    if (showContainment && !showPropertiesPanel) return '0.9fr 4.2fr';
+    if (!showContainment && showPropertiesPanel) return '4.2fr 0.9fr';
     return '1fr';
   }, [showContainment, showPropertiesPanel]);
 
