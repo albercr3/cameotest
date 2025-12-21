@@ -178,7 +178,7 @@ export function DiagramCanvas({
     | {
         edgeId: string;
         segmentIndex: number;
-        orientation: 'horizontal' | 'vertical';
+        orientation: 'horizontal' | 'vertical' | 'free';
         basePoints: Point[];
         start: { diagramX: number; diagramY: number };
         historyKey: string;
@@ -875,10 +875,12 @@ export function DiagramCanvas({
     const segmentStart = points[segmentIndex];
     const segmentEnd = points[segmentIndex + 1];
     if (!segmentStart || !segmentEnd) return;
-    const orientation =
-      Math.abs(segmentStart.x - segmentEnd.x) >= Math.abs(segmentStart.y - segmentEnd.y)
+    const useOrthogonal = viewRef.current.orthogonalRouting !== false;
+    const orientation = useOrthogonal
+      ? Math.abs(segmentStart.x - segmentEnd.x) >= Math.abs(segmentStart.y - segmentEnd.y)
         ? 'horizontal'
-        : 'vertical';
+        : 'vertical'
+      : 'free';
     const startPoint = toDiagramPoint(event);
     const historyKey = crypto.randomUUID();
     routingDragRef.current = {
@@ -902,13 +904,21 @@ export function DiagramCanvas({
     const snap = viewRef.current.snapEnabled ? GRID_SIZE : 1;
     const delta = orientation === 'horizontal' ? dy : dx;
     const snapped = Math.round(delta / snap) * snap;
+    const snappedDx = Math.round(dx / snap) * snap;
+    const snappedDy = Math.round(dy / snap) * snap;
     const nextPoints = basePoints.map((point, index) => {
       if (index === segmentIndex || index === segmentIndex + 1) {
-        return orientation === 'horizontal' ? { ...point, y: point.y + snapped } : { ...point, x: point.x + snapped };
+        if (orientation === 'horizontal') return { ...point, y: point.y + snapped };
+        if (orientation === 'vertical') return { ...point, x: point.x + snapped };
+        return { ...point, x: point.x + snappedDx, y: point.y + snappedDy };
       }
       return point;
     });
-    routingDragMoved.current = routingDragMoved.current || snapped !== 0;
+    const moved =
+      orientation === 'free'
+        ? snappedDx !== 0 || snappedDy !== 0
+        : snapped !== 0;
+    routingDragMoved.current = routingDragMoved.current || moved;
     const currentDiagram = diagramRef.current ?? diagram;
     const nextEdges = currentDiagram.edges.map((candidate) =>
       candidate.id === edgeId ? { ...candidate, routingPoints: nextPoints.slice(1, -1) } : candidate,
@@ -954,11 +964,25 @@ export function DiagramCanvas({
     const useOrthogonal = view.orthogonalRouting !== false;
     const sourceRect = rectForNode(source);
     const targetRect = rectForNode(target);
-    const { sourceSide, targetSide } = chooseSidesForRects(sourceRect, targetRect);
+    const routing = edge.routingPoints?.map(({ x, y }) => ({ x, y })) ?? [];
+    const nearestSideToPoint = (rect: { x: number; y: number; w: number; h: number }, point: Point): Side => {
+      const distances = [
+        { side: 'N' as const, value: Math.abs(point.y - rect.y) },
+        { side: 'S' as const, value: Math.abs(point.y - (rect.y + rect.h)) },
+        { side: 'W' as const, value: Math.abs(point.x - rect.x) },
+        { side: 'E' as const, value: Math.abs(point.x - (rect.x + rect.w)) },
+      ];
+      return distances.reduce((best, candidate) => (candidate.value < best.value ? candidate : best)).side;
+    };
+    const { sourceSide, targetSide } = routing.length
+      ? {
+          sourceSide: nearestSideToPoint(sourceRect, routing[0]),
+          targetSide: nearestSideToPoint(targetRect, routing[routing.length - 1]),
+        }
+      : chooseSidesForRects(sourceRect, targetRect);
     const start = useOrthogonal ? anchorForRect(sourceRect, sourceSide) : centerOfNode(source);
     const end = useOrthogonal ? anchorForRect(targetRect, targetSide) : centerOfNode(target);
-    if (edge.routingPoints?.length) {
-      const routing = edge.routingPoints.map(({ x, y }) => ({ x, y }));
+    if (routing.length) {
       return [start, ...routing, end];
     }
     if (useOrthogonal) {
@@ -974,7 +998,6 @@ export function DiagramCanvas({
   };
 
   const segmentHandles = (edge: Diagram['edges'][number], points: Point[]) => {
-    if (!view.orthogonalRouting) return null;
     const handles: React.ReactNode[] = [];
     for (let i = 1; i < points.length - 2; i += 1) {
       const start = points[i];
